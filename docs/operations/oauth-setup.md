@@ -88,7 +88,7 @@ Convert the downloaded GitHub private key to one line for local environment stor
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\nimbus.private-key.pem"))
 ```
 
-Put local values in ignored `.env` or `apps/web/.env.local` files. In production, put secrets in the deployment platform secret manager or a managed key vault. Never paste the private key, client secret, webhook secret, installation token, or user token into chat, source control, PostHog, logs, task events, or a sandbox.
+Put all local GitHub App values only in ignored `apps/web/.env.local`. The executor and migration commands have their own `.env.local` files and do not need GitHub App secrets. In production, put secrets in the deployment platform secret manager or a managed key vault. Never paste the private key, client secret, webhook secret, installation token, or user token into chat, source control, PostHog, logs, task events, or a sandbox.
 
 The GitHub App installation ID is not an environment variable. GitHub returns it after installation, Nimbus verifies it with the authenticated GitHub user and GitHub App API, then stores it against the Nimbus organization. Installation access tokens are created just in time and expire after one hour.
 

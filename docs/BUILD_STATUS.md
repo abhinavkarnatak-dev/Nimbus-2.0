@@ -4,6 +4,8 @@ Last updated: 2026-10-06
 
 ## Completed
 
+- Service-local environment files and templates separate web credentials, executor configuration, and database commands. Root configuration is no longer loaded; existing local values were preserved with an ignored recovery backup.
+
 - Repository root, Git state, empty remote history, and origin URL verified.
 - V1 inspected read-only and limitations recorded with concrete source evidence.
 - Current official Codex app-server and Sign in with ChatGPT contracts reviewed.
@@ -62,7 +64,7 @@ Last updated: 2026-10-06
 - The local executor advanced a created task to completed and stored six ordered events.
 - SSE replay returned all six durable events after a fresh request.
 - `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` pass.
-- Vitest reports 35 passing unit tests across state, protocol, model discovery, provider selection, task metadata, workspace, GitHub App security primitives, and analytics privacy boundaries, plus three PostgreSQL-backed GitHub route tests with simulated GitHub responses.
+- Vitest reports 38 passing unit tests across environment file ownership and precedence, state, protocol, model discovery, provider selection, task metadata, workspace, GitHub App security primitives, and analytics privacy boundaries, plus three PostgreSQL-backed GitHub route tests with simulated GitHub responses.
 - Playwright reports 2 passing critical-flow tests across desktop and mobile Chromium.
 - `pnpm audit --prod` reports no known vulnerabilities.
 - No live external integration is claimed as verified.

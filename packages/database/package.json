@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
-    "generate": "drizzle-kit generate",
-    "migrate": "tsx --env-file=../../.env src/migrate.ts",
-    "seed": "tsx --env-file=../../.env src/seed.ts"
+    "generate": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs generate",
+    "migrate": "tsx --env-file-if-exists=.env.local src/migrate.ts",
+    "seed": "tsx --env-file-if-exists=.env.local src/seed.ts"
   },
   "dependencies": {
     "@nimbus/shared": "workspace:*",

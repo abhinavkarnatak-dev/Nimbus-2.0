@@ -12,7 +12,9 @@ This repository is under active construction. See [docs/BUILD_STATUS.md](docs/BU
 - PostgreSQL 17 and Redis are started through Docker Compose
 
 ```powershell
-Copy-Item -LiteralPath '.env.example' -Destination '.env'
+Copy-Item -LiteralPath 'apps/web/.env.example' -Destination 'apps/web/.env.local'
+Copy-Item -LiteralPath 'apps/executor/.env.example' -Destination 'apps/executor/.env.local'
+Copy-Item -LiteralPath 'packages/database/.env.example' -Destination 'packages/database/.env.local'
 docker compose up -d --wait
 pnpm install --frozen-lockfile
 pnpm db:migrate
@@ -21,6 +23,8 @@ pnpm dev
 ```
 
 Open `http://localhost:3000`. Local development sign-in is explicit and is disabled when `NODE_ENV=production`.
+
+Copy templates only during first setup. Do not overwrite existing `.env.local` files containing credentials. There is no shared root `.env` file.
 
 Every current setting is explained in [docs/operations/environment-variables.md](docs/operations/environment-variables.md).
 
