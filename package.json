@@ -1,0 +1,39 @@
+{
+  "name": "nimbus-2",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "playwright test",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @nimbus/database generate",
+    "db:migrate": "pnpm --filter @nimbus/database migrate",
+    "db:seed": "pnpm --filter @nimbus/database seed",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.7.0",
+    "eve": "0.71.0",
+    "prettier": "3.6.2",
+    "turbo": "2.5.8",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@tailwindcss/oxide",
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

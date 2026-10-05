@@ -1,0 +1,31 @@
+{
+  "name": "@nimbus/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx --env-file=../../.env src/migrate.ts",
+    "seed": "tsx --env-file=../../.env src/seed.ts"
+  },
+  "dependencies": {
+    "@nimbus/shared": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "postgres": "3.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.0",
+    "drizzle-kit": "0.31.11",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

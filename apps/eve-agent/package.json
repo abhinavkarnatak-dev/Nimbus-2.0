@@ -1,0 +1,22 @@
+{
+  "name": "@nimbus/eve-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "dev": "eve dev --port 3010"
+  },
+  "dependencies": {
+    "eve": "0.71.0",
+    "zod": "4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

@@ -1,0 +1,5 @@
+.env.example
+.gitignore
+*.sql
+pnpm-lock.yaml
+apps/web/next-env.d.ts
