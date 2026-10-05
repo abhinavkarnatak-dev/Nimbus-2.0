@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@nimbus/github": "workspace:*",
     "@nimbus/database": "workspace:*",
     "@nimbus/shared": "workspace:*",
     "@radix-ui/react-dialog": "1.1.15",

@@ -5,10 +5,11 @@ const workspaceRoot = resolve(process.cwd(), "../..");
 
 const config: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ["@nimbus/database", "@nimbus/shared"],
+  transpilePackages: ["@nimbus/database", "@nimbus/shared", "@nimbus/github"],
   experimental: { externalDir: true },
   turbopack: { root: workspaceRoot },
   allowedDevOrigins: ["127.0.0.1"],
+  logging: { incomingRequests: { ignore: [/^\/api\/github\/callback/] } },
   async headers() {
     return [
       {

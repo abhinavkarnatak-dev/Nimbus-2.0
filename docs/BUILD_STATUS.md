@@ -24,6 +24,8 @@ Last updated: 2026-10-06
 - Task creation accepts the user's objective directly and derives concise session titles server-side instead of asking users to name agent runs.
 - Task creation selects from an account-scoped Codex app-server model catalog. Selected models are validated server-side and persisted per task.
 - GitHub App client foundation validates complete configuration, signs short-lived app JWTs, exchanges one-time user authorization codes, verifies user installations, mints restricted installation tokens, lists authorized repositories, and validates webhook signatures over raw request bytes.
+- GitHub connection routes enforce browser-bound, expiring, one-time OAuth state and administrator access; import user-authorized repositories; and record connection audits. Webhook routes verify signatures, limit request size, deduplicate in PostgreSQL, and apply installation and repository access removal plus known PR states.
+- Cloudflare Quick Tunnel started for development webhooks. Public development sign-in is blocked. Local browser sessions use a localhost GitHub callback.
 - PostHog-only observability boundary rejects non-allowlisted content metadata.
 - Desktop and mobile Playwright task creation and refresh recovery checks pass.
 - Next.js and Drizzle security advisories discovered by audit were remediated by patched exact-version upgrades.
@@ -34,7 +36,7 @@ Last updated: 2026-10-06
 - First live-provider vertical slice. Local durability and UI behavior are verified with a deterministic provider, but external credentials are not configured.
 - ChatGPT OAuth completion must invoke the implemented model catalog refresh after token exchange. Live account discovery remains unverified without an approved client.
 - Executor recovery, cancellation propagation, distributed leases, outbox delivery, and reconciliation hardening.
-- GitHub App install callback, durable repository synchronization, webhook inbox processing, trusted branch push, and idempotent pull request delivery.
+- GitHub App multi-installation selection, webhook reconciliation for added repositories and check/push events, trusted branch push, and idempotent pull request delivery.
 
 ## Blocked
 
@@ -60,10 +62,11 @@ Last updated: 2026-10-06
 - The local executor advanced a created task to completed and stored six ordered events.
 - SSE replay returned all six durable events after a fresh request.
 - `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` pass.
-- Vitest reports 28 passing tests across state, protocol, model discovery, provider selection, task metadata, workspace, GitHub App security primitives, and analytics privacy boundaries.
+- Vitest reports 35 passing unit tests across state, protocol, model discovery, provider selection, task metadata, workspace, GitHub App security primitives, and analytics privacy boundaries, plus three PostgreSQL-backed GitHub route tests with simulated GitHub responses.
 - Playwright reports 2 passing critical-flow tests across desktop and mobile Chromium.
 - `pnpm audit --prod` reports no known vulnerabilities.
 - No live external integration is claimed as verified.
+- GitHub callback replay, expired/browser-mismatched state, and concurrent webhook deduplication pass against real PostgreSQL with simulated GitHub API responses. Seven additional unit checks cover callback URL validation, payload size/raw bytes, and webhook fail-closed behavior.
 
 ## Known risks
 
@@ -74,12 +77,12 @@ Last updated: 2026-10-06
 
 ## Live integration status
 
-| Integration          | Status                       | Evidence                                                                  |
-| -------------------- | ---------------------------- | ------------------------------------------------------------------------- |
-| PostgreSQL           | Verified locally             | PostgreSQL 17 migration, seed, reads, writes, and idempotent rerun passed |
-| Redis                | Healthy locally              | Redis 7.4 container health check passed                                   |
-| Codex app-server     | Contract and parser verified | Live OAuth token unavailable                                              |
-| Sign in with ChatGPT | Launch dependency            | Approved client ID unavailable                                            |
-| GitHub App           | Client contract verified     | Live credentials and callback routes unavailable                          |
-| Vercel Sandbox       | Definition type checked      | Credentials unavailable                                                   |
-| PostHog              | Privacy boundary verified    | Live project key unavailable                                              |
+| Integration          | Status                       | Evidence                                                                                          |
+| -------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| PostgreSQL           | Verified locally             | PostgreSQL 17 migration, seed, reads, writes, and idempotent rerun passed                         |
+| Redis                | Healthy locally              | Redis 7.4 container health check passed                                                           |
+| Codex app-server     | Contract and parser verified | Live OAuth token unavailable                                                                      |
+| Sign in with ChatGPT | Launch dependency            | Approved client ID unavailable                                                                    |
+| GitHub App           | Routes verified locally      | PostgreSQL route tests and signed public tunnel delivery passed; live App credentials unavailable |
+| Vercel Sandbox       | Definition type checked      | Credentials unavailable                                                                           |
+| PostHog              | Privacy boundary verified    | Live project key unavailable                                                                      |

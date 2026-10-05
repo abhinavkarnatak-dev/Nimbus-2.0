@@ -1,5 +1,6 @@
 import { db, eq, integrationAccounts } from "@nimbus/database";
 import { requireIdentity } from "@/lib/auth";
+import { hasGitHubAppConfig } from "@nimbus/github";
 
 export default async function IntegrationsPage() {
   const identity = await requireIdentity();
@@ -40,9 +41,28 @@ export default async function IntegrationsPage() {
               </span>
               <h2 style={{ marginTop: 15 }}>{name}</h2>
               <p>{detail}</p>
-              <button className="button secondary" disabled={!row}>
-                {row ? "Manage" : "Configuration required"}
-              </button>
+              {kind === "github" && hasGitHubAppConfig() ? (
+                <form action="/api/github/connect" method="post">
+                  <button className="button secondary" type="submit">
+                    {row ? "Reconnect GitHub" : "Connect GitHub"}
+                  </button>
+                  <p>
+                    Install the App on your test repository in GitHub before
+                    connecting.
+                  </p>
+                  <a
+                    href={`https://github.com/apps/${encodeURIComponent(process.env.GITHUB_APP_SLUG!)}/installations/new`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Install GitHub App
+                  </a>
+                </form>
+              ) : (
+                <button className="button secondary" disabled={!row}>
+                  {row ? "Manage" : "Configuration required"}
+                </button>
+              )}
             </section>
           );
         })}

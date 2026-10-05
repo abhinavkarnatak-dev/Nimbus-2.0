@@ -36,6 +36,8 @@ The app-server catalog is not a guaranteed account entitlement list. A successfu
 
 These variables are unnecessary for the local fake-provider flow. They become required together when the live GitHub integration is enabled.
 
+`GITHUB_APP_CALLBACK_URL` is also required. Set it to `http://localhost:3000/api/github/callback` for this local session. Production uses the exact registered HTTPS callback. Put web integration variables in `apps/web/.env.local`, which Next.js loads; the executor separately loads the root `.env`. A root environment file alone does not configure the web routes.
+
 | Variable                        | Secret | Purpose                                                      |
 | ------------------------------- | ------ | ------------------------------------------------------------ |
 | `GITHUB_APP_ID`                 | No     | Identifies the GitHub App when signing app JWTs.             |

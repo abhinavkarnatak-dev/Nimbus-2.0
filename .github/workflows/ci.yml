@@ -56,6 +56,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm --filter @nimbus/web test
+        env:
+          NIMBUS_GITHUB_DATABASE_TEST: "true"
       - run: pnpm build
       - run: pnpm audit --prod
       - run: pnpm exec playwright install --with-deps chromium

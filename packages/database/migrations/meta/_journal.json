@@ -15,6 +15,13 @@
       "when": 1791244800000,
       "tag": "0001_codex_model_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791250000000,
+      "tag": "0002_github_connections",
+      "breakpoints": true
     }
   ]
 }

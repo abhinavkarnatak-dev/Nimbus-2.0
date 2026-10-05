@@ -61,6 +61,13 @@ export async function POST(request: Request) {
       { error: "Repository not available" },
       { status: 404 },
     );
+  if (repository.archived)
+    return NextResponse.json(
+      {
+        error: "Repository access is unavailable or the repository is archived",
+      },
+      { status: 403 },
+    );
 
   const taskId = `task_${randomUUID().replaceAll("-", "")}`;
   const correlationId = `corr_${randomUUID().replaceAll("-", "")}`;

@@ -581,6 +581,7 @@ export const webhookDeliveries = pgTable(
     deliveryId: text("delivery_id").notNull(),
     signatureValid: boolean("signature_valid").notNull(),
     eventType: text("event_type").notNull(),
+    payload: jsonb("payload"),
     status: text("status").notNull(),
     receivedAt: utc("received_at").notNull().defaultNow(),
     processedAt: utc("processed_at"),
@@ -666,6 +667,20 @@ export const oauthAuthorizationStates = pgTable(
   },
   (table) => [uniqueIndex("oauth_state_hash_unique").on(table.stateHash)],
 );
+
+export const githubAuthorizations = pgTable("github_authorizations", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  browserHash: text("browser_hash").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  expiresAt: utc("expires_at").notNull(),
+  consumedAt: utc("consumed_at"),
+});
 
 export const outbox = pgTable(
   "outbox",

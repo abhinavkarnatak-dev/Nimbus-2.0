@@ -25,7 +25,17 @@ Replace `https://nimbus.example.com` with the deployed Nimbus origin.
 | Request user authorization during installation | Enabled                                                            |
 | Device flow                                    | Disabled                                                           |
 
-The callback and webhook URLs must be public HTTPS endpoints. For local development, use a dedicated HTTPS tunnel and register its exact URLs on the development GitHub App. Do not reuse a production webhook secret locally.
+Production callback and webhook URLs must be public HTTPS endpoints. For local development, use a dedicated HTTPS tunnel for webhooks. Do not reuse a production webhook secret locally.
+
+For the current local development sign-in, register `http://localhost:3000/api/github/callback` as the callback and set `GITHUB_APP_CALLBACK_URL` to that exact value. Open Nimbus on localhost and start the connection from Integrations after installing the App. Use the Cloudflare HTTPS origin for the homepage and webhook. The local development sign-in is blocked over Cloudflare, and browser sessions do not transfer between localhost and the tunnel hostname. Production callbacks must use the public HTTPS origin with production authentication.
+
+The routes are implemented at `/api/github/connect` (POST), `/api/github/callback` (GET), and `/api/github/webhooks` (POST). The callback requires a Nimbus owner or administrator session, consumes state once, verifies installation access through GitHub user and App APIs, and imports repositories in a database transaction. Network requests occur before that transaction. This initial connection flow accepts one active installation or an explicit authorized installation ID; installation selection for accounts with several installations remains pending.
+
+Webhook requests are verified before parsing, bounded to 2 MB, stripped to necessary metadata, and deduplicated in PostgreSQL. Revocation, suspension, repository removal, and known pull request state updates are applied transactionally. Other events are retained with `received` status for later reconciliation; check and push processing is not implemented yet. The endpoint returns 503 if the webhook secret is missing.
+
+Database route verification uses real PostgreSQL with simulated GitHub responses. Run it with `NIMBUS_GITHUB_DATABASE_TEST=true` and a migrated `DATABASE_URL`. These checks do not prove a live GitHub OAuth exchange works.
+
+The active development Cloudflare tunnel runs as Docker container `nimbus20-cloudflare-tunnel`, using cloudflared 2026.9.3. Inspect its current URL with `docker logs nimbus20-cloudflare-tunnel`. A Quick Tunnel hostname changes after recreation and does not support SSE. Continue testing task streaming on localhost. Use a named tunnel with a stable domain for deployment.
 
 ### Repository permissions
 

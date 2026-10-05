@@ -49,7 +49,7 @@ export class GitHubAppClient {
     return url.toString();
   }
 
-  async exchangeUserCode(code: string): Promise<string> {
+  async exchangeUserCode(code: string, redirectUri?: string): Promise<string> {
     const response = await this.#fetch(
       "https://github.com/login/oauth/access_token",
       {
@@ -63,6 +63,7 @@ export class GitHubAppClient {
           client_id: this.#config.clientId,
           client_secret: this.#config.clientSecret,
           code,
+          ...(redirectUri ? { redirect_uri: redirectUri } : {}),
         }),
       },
     );
@@ -95,6 +96,45 @@ export class GitHubAppClient {
         throw new Error("GitHub installation is not accessible to this user");
     }
     throw new Error("GitHub installation pagination exceeded the safety limit");
+  }
+
+  async listUserInstallations(
+    userAccessToken: string,
+  ): Promise<GitHubInstallation[]> {
+    const installations: GitHubInstallation[] = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const response = await this.#api(
+        `/user/installations?per_page=100&page=${page}`,
+        userAccessToken,
+      );
+      if (!Array.isArray(response.installations))
+        throw new Error("GitHub user installations response was malformed");
+      installations.push(
+        ...response.installations.map((entry: unknown) =>
+          parseInstallation(asRecord(entry)),
+        ),
+      );
+      if (response.installations.length < 100) return installations;
+    }
+    throw new Error("GitHub installation pagination exceeded the safety limit");
+  }
+
+  async listUserRepositories(
+    userAccessToken: string,
+    installationId: number,
+  ): Promise<GitHubRepository[]> {
+    const repositories: GitHubRepository[] = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const response = await this.#api(
+        `/user/installations/${installationId}/repositories?per_page=100&page=${page}`,
+        userAccessToken,
+      );
+      if (!Array.isArray(response.repositories))
+        throw new Error("GitHub repository response was malformed");
+      repositories.push(...response.repositories.map(parseRepository));
+      if (response.repositories.length < 100) return repositories;
+    }
+    throw new Error("GitHub repository pagination exceeded the safety limit");
   }
 
   async getInstallation(installationId: number): Promise<GitHubInstallation> {
