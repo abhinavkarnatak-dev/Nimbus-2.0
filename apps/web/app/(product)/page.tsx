@@ -84,8 +84,8 @@ export default async function DashboardPage() {
             required
             minLength={10}
             maxLength={8000}
-            rows={3}
-            placeholder="Describe the outcome, constraints, and what success looks like. Nimbus will decide how to investigate and implement it."
+            rows={2}
+            placeholder="What should Nimbus build, fix, or investigate? Add any constraints or definition of done."
           />
           <p className="launch-title-hint">
             Nimbus will name the session from your request.

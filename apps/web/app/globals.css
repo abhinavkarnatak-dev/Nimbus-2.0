@@ -34,7 +34,7 @@ body {
   min-height: 100vh;
   background: var(--bg);
   font-family:
-    Inter,
+    var(--font-manrope),
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -456,7 +456,7 @@ select:focus-visible {
 .launch-card form {
   position: relative;
   z-index: 1;
-  padding: 16px 16px 14px 62px;
+  padding: 16px 16px 13px 62px;
 }
 .launch-title-row {
   display: flex;
@@ -465,15 +465,17 @@ select:focus-visible {
 }
 .launch-title-row label {
   color: #f0f1f4;
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 680;
+  letter-spacing: -0.012em;
 }
 .launch-title-row span {
-  padding: 3px 7px;
+  padding: 4px 8px;
   border: 1px solid #363a42;
   border-radius: 999px;
   color: #9299a5;
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 560;
 }
 .launch-card input[name="title"],
 .launch-card textarea {
@@ -485,9 +487,11 @@ select:focus-visible {
 }
 
 .launch-title-hint {
-  margin: -7px 0 0;
-  color: #7c8490;
+  margin: 2px 0 10px;
+  color: #737987;
   font-size: 11px;
+  font-weight: 520;
+  letter-spacing: -0.005em;
 }
 .launch-card input[name="title"] {
   margin-top: 12px;
@@ -496,29 +500,35 @@ select:focus-visible {
   letter-spacing: -0.02em;
 }
 .launch-card textarea {
-  min-height: 58px;
-  margin-top: 9px;
-  resize: vertical;
-  color: #c7cbd2;
-  font-size: 12px;
-  line-height: 1.55;
+  display: block;
+  height: 48px;
+  min-height: 48px;
+  margin-top: 8px;
+  padding: 5px 0 0;
+  resize: none;
+  color: #eef0f4;
+  font-size: 16px;
+  font-weight: 510;
+  letter-spacing: -0.018em;
+  line-height: 1.4;
 }
 .launch-card input::placeholder,
 .launch-card textarea::placeholder {
-  color: #676d77;
+  color: #8b919d;
+  opacity: 1;
 }
 .launch-footer {
   min-height: 39px;
   margin-left: -45px;
-  padding: 9px 0 0;
+  padding: 10px 0 0;
   display: flex;
   align-items: center;
   gap: 10px;
   border-top: 1px solid #292c32;
 }
 .repo-picker {
-  height: 29px;
-  padding: 0 7px;
+  height: 32px;
+  padding: 0 9px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -532,7 +542,8 @@ select:focus-visible {
   outline: 0;
   background: transparent;
   color: #c5c9d0;
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 560;
 }
 .repo-picker option {
   color: #111;
@@ -546,10 +557,11 @@ select:focus-visible {
   align-items: center;
   gap: 5px;
   color: #737a85;
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 520;
 }
 .launch-button {
-  height: 30px;
+  height: 32px;
   margin-left: auto;
   padding: 0 11px;
   display: flex;
@@ -559,7 +571,7 @@ select:focus-visible {
   border-radius: 6px;
   background: #7158e9;
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 680;
   cursor: pointer;
 }
