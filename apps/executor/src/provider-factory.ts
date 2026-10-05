@@ -7,7 +7,7 @@ import {
 
 export interface ProviderConfiguration {
   provider: CodingAgentProvider;
-  model: string;
+  fallbackModel?: string;
 }
 
 export function createProviderConfiguration(
@@ -16,7 +16,7 @@ export function createProviderConfiguration(
   if (environment.NIMBUS_CODING_PROVIDER === "fake") {
     const provider = new FakeCodingAgentProvider();
     requireProductionProvider(provider, environment.NODE_ENV);
-    return { provider, model: "fake-codex-test-provider" };
+    return { provider, fallbackModel: "fake-codex-test-provider" };
   }
 
   if (environment.NIMBUS_CODING_PROVIDER === "codex") {
@@ -33,7 +33,6 @@ export function createProviderConfiguration(
           console.error("codex app-server stderr", { message });
         },
       }),
-      model: environment.NIMBUS_CODEX_MODEL ?? "gpt-5.2-codex",
     };
   }
 

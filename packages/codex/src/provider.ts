@@ -19,11 +19,18 @@ export interface StartTurnInput {
   signal?: AbortSignal;
 }
 
+export interface CodingAgentModel {
+  id: string;
+  displayName?: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
 export interface CodingAgentProvider {
   readonly kind: "codex-app-server" | "fake";
   start(): Promise<void>;
   stop(): Promise<void>;
-  listModels(): Promise<readonly string[]>;
+  listModels(): Promise<readonly CodingAgentModel[]>;
   startThread(input: StartThreadInput): Promise<string>;
   resumeThread(threadId: string): Promise<void>;
   runTurn(input: StartTurnInput): AsyncIterable<CodingAgentEvent>;

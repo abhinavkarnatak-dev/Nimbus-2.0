@@ -97,15 +97,9 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     if (!child.killed) child.kill("SIGKILL");
   }
 
-  async listModels(): Promise<readonly string[]> {
+  async listModels() {
     const result = await this.#request("model/list", {});
-    const data = asRecord(result).data;
-    if (!Array.isArray(data)) return [];
-    return data.flatMap((entry) => {
-      const model = asRecord(entry);
-      const id = model.id ?? model.model;
-      return typeof id === "string" ? [id] : [];
-    });
+    return parseModelListResult(result);
   }
 
   async startThread(input: StartThreadInput): Promise<string> {
@@ -276,6 +270,28 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     this.#pending.clear();
     for (const wake of this.#eventWaiters.splice(0)) wake();
   }
+}
+
+export function parseModelListResult(result: unknown) {
+  const resultRecord = asRecord(result);
+  const data = resultRecord.data ?? resultRecord.models;
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((entry) => {
+    const model = asRecord(entry);
+    const id = model.id ?? model.model;
+    if (typeof id !== "string") return [];
+    const displayName = model.displayName ?? model.display_name ?? model.name;
+    const description = model.description;
+    const isDefault = model.isDefault ?? model.is_default ?? model.default;
+    return [
+      {
+        id,
+        ...(typeof displayName === "string" ? { displayName } : {}),
+        ...(typeof description === "string" ? { description } : {}),
+        ...(typeof isDefault === "boolean" ? { isDefault } : {}),
+      },
+    ];
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

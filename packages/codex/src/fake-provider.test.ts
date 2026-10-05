@@ -6,6 +6,13 @@ describe("FakeCodingAgentProvider", () => {
   it("produces a deterministic officially-terminal-style completion", async () => {
     const provider = new FakeCodingAgentProvider();
     await provider.start();
+    await expect(provider.listModels()).resolves.toEqual([
+      expect.objectContaining({
+        id: "fake-codex-test-provider",
+        displayName: "Local test model",
+        isDefault: true,
+      }),
+    ]);
     const threadId = await provider.startThread({
       workspacePath: "/workspace",
       model: "fake-codex-test-provider",

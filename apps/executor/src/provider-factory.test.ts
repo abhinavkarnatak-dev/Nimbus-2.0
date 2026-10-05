@@ -10,7 +10,7 @@ describe("createProviderConfiguration", () => {
     });
 
     expect(configuration.provider.kind).toBe("fake");
-    expect(configuration.model).toBe("fake-codex-test-provider");
+    expect(configuration.fallbackModel).toBe("fake-codex-test-provider");
   });
 
   it("rejects the fake provider in production", () => {
@@ -32,10 +32,9 @@ describe("createProviderConfiguration", () => {
     const configuration = createProviderConfiguration({
       NIMBUS_CODING_PROVIDER: "codex",
       NIMBUS_CODEX_ACCESS_TOKEN: "test-only-short-lived-token",
-      NIMBUS_CODEX_MODEL: "codex-test-model",
     });
 
     expect(configuration.provider.kind).toBe("codex-app-server");
-    expect(configuration.model).toBe("codex-test-model");
+    expect(configuration.fallbackModel).toBeUndefined();
   });
 });

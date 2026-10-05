@@ -50,8 +50,11 @@ components:
   schemas:
     CreateTask:
       type: object
-      required: [repositoryId, objective, idempotencyKey]
+      required: [repositoryId, objective, model, idempotencyKey]
       properties:
         repositoryId: { type: string, minLength: 12 }
         objective: { type: string, minLength: 10, maxLength: 8000 }
+        model:
+          type: string
+          description: Model ID from the connected account's current Codex app-server catalog.
         idempotencyKey: { type: string, minLength: 12, maxLength: 200 }

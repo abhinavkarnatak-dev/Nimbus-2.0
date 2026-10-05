@@ -22,7 +22,7 @@ import { createProviderConfiguration } from "./provider-factory.js";
 
 export class TaskWorker {
   readonly #provider: CodingAgentProvider;
-  readonly #model: string;
+  readonly #fallbackModel: string | undefined;
   readonly #workspace: LocalWorkspaceProvider;
   #timer: NodeJS.Timeout | undefined;
   #busy = false;
@@ -31,7 +31,7 @@ export class TaskWorker {
   constructor(repositoryRoot: string) {
     const configuration = createProviderConfiguration();
     this.#provider = configuration.provider;
-    this.#model = configuration.model;
+    this.#fallbackModel = configuration.fallbackModel;
     this.#workspace = new LocalWorkspaceProvider(repositoryRoot);
   }
 
@@ -156,9 +156,12 @@ export class TaskWorker {
         "The isolated workspace is ready and linked to the task.",
         "Codex needs a repository-scoped environment before starting a thread.",
       );
+      const model = task.requestedModel ?? this.#fallbackModel;
+      if (!model)
+        throw new Error("Task has no validated Codex model selection");
       const threadId = await this.#provider.startThread({
         workspacePath: workspace.root,
-        model: this.#model,
+        model,
       });
       const threadRowId = `ctx_${randomUUID().replaceAll("-", "")}`;
       await db().insert(codexThreads).values({
@@ -166,7 +169,7 @@ export class TaskWorker {
         taskId: task.id,
         workspaceId,
         providerThreadId: threadId,
-        model: this.#model,
+        model,
         providerConfigVersion: 1,
       });
       const turnRowId = `turn_${randomUUID().replaceAll("-", "")}`;

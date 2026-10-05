@@ -12,6 +12,10 @@ import {
   tasks,
 } from "@nimbus/database";
 import { currentIdentity } from "@/lib/auth";
+import {
+  getSelectableCodexModels,
+  isSelectableModel,
+} from "@/lib/codex-models";
 import { deriveTaskTitle } from "@/lib/task-title";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -19,6 +23,7 @@ import { z } from "zod";
 const CreateTaskSchema = z.object({
   repositoryId: z.string().min(12),
   objective: z.string().trim().min(10).max(8000),
+  model: z.string().trim().min(1).max(200),
   idempotencyKey: z.string().min(12).max(200),
 });
 
@@ -35,6 +40,12 @@ export async function POST(request: Request) {
     );
   const input = parsed.data;
   const title = deriveTaskTitle(input.objective);
+  const models = await getSelectableCodexModels(identity.userId);
+  if (!isSelectableModel(models, input.model))
+    return NextResponse.json(
+      { error: "Selected Codex model is not in the current account catalog" },
+      { status: 400 },
+    );
   const [repository] = await db()
     .select()
     .from(repositories)
@@ -74,6 +85,7 @@ export async function POST(request: Request) {
         repositoryId: repository.id,
         title,
         objective: input.objective,
+        requestedModel: input.model,
         status: "queued",
         baseRef: repository.defaultBranch,
       });

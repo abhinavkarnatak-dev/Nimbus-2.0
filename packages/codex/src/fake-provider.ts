@@ -18,9 +18,16 @@ export class FakeCodingAgentProvider implements CodingAgentProvider {
     this.#started = false;
   }
 
-  async listModels(): Promise<readonly string[]> {
+  async listModels() {
     this.#assertStarted();
-    return ["fake-codex-test-provider"];
+    return [
+      {
+        id: "fake-codex-test-provider",
+        displayName: "Local test model",
+        description: "Deterministic simulation for local verification",
+        isDefault: true,
+      },
+    ];
   }
 
   async startThread(_input: StartThreadInput): Promise<string> {

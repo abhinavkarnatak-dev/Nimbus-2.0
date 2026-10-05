@@ -22,6 +22,8 @@ pnpm dev
 
 Open `http://localhost:3000`. Local development sign-in is explicit and is disabled when `NODE_ENV=production`.
 
+Every current setting is explained in [docs/operations/environment-variables.md](docs/operations/environment-variables.md).
+
 ## Trust boundaries
 
 - The browser receives only an opaque Nimbus session cookie.

@@ -1,5 +1,6 @@
 import { db, eq, repositories } from "@nimbus/database";
 import { requireIdentity } from "@/lib/auth";
+import { getSelectableCodexModels } from "@/lib/codex-models";
 
 export default async function NewTaskPage() {
   const identity = await requireIdentity();
@@ -7,6 +8,7 @@ export default async function NewTaskPage() {
     .select()
     .from(repositories)
     .where(eq(repositories.organizationId, identity.organizationId));
+  const models = await getSelectableCodexModels(identity.userId);
   return (
     <main className="page">
       <div className="page-head">
@@ -26,6 +28,37 @@ export default async function NewTaskPage() {
           method="post"
           style={{ padding: 24, display: "grid", gap: 18 }}
         >
+          <label>
+            <span className="eyebrow">Codex model</span>
+            <select
+              name="model"
+              required
+              disabled={!models.length}
+              style={{
+                width: "100%",
+                padding: 12,
+                marginTop: 7,
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+              }}
+            >
+              {models.length ? (
+                models.map((model) => (
+                  <option value={model.id} key={model.id}>
+                    {model.label}
+                    {model.isDefault ? " (default)" : ""}
+                  </option>
+                ))
+              ) : (
+                <option value="">Connect ChatGPT to load models</option>
+              )}
+            </select>
+            <small
+              style={{ display: "block", marginTop: 8, color: "var(--muted)" }}
+            >
+              Loaded from Codex app-server for the connected ChatGPT account.
+            </small>
+          </label>
           <label>
             <span className="eyebrow">Repository</span>
             <select
@@ -79,6 +112,7 @@ export default async function NewTaskPage() {
             className="button"
             type="submit"
             style={{ width: "fit-content" }}
+            disabled={!models.length}
           >
             Run agent
           </button>

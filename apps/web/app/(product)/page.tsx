@@ -1,4 +1,5 @@
 import { requireIdentity } from "@/lib/auth";
+import { getSelectableCodexModels } from "@/lib/codex-models";
 import { listTasks } from "@/lib/task-data";
 import { db, eq, repositories } from "@nimbus/database";
 import {
@@ -30,12 +31,13 @@ const activeStates = new Set([
 
 export default async function DashboardPage() {
   const identity = await requireIdentity();
-  const [allTasks, repos] = await Promise.all([
+  const [allTasks, repos, models] = await Promise.all([
     listTasks(identity.organizationId),
     db()
       .select()
       .from(repositories)
       .where(eq(repositories.organizationId, identity.organizationId)),
+    getSelectableCodexModels(identity.userId),
   ]);
   const active = allTasks.filter((task) => activeStates.has(task.status));
   const delivered = allTasks.filter(
@@ -99,6 +101,20 @@ export default async function DashboardPage() {
                 ))}
               </select>
             </label>
+            <label className="repo-picker">
+              <CircleDot size={15} />
+              <select name="model" required aria-label="Codex model">
+                {models.length ? (
+                  models.map((model) => (
+                    <option value={model.id} key={model.id}>
+                      {model.label}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">Connect ChatGPT to load models</option>
+                )}
+              </select>
+            </label>
             <div className="launch-capabilities">
               <span>
                 <TerminalSquare size={14} /> Tools enabled
@@ -112,7 +128,11 @@ export default async function DashboardPage() {
               name="idempotencyKey"
               value={`dashboard-${crypto.randomUUID()}`}
             />
-            <button type="submit" className="launch-button">
+            <button
+              type="submit"
+              className="launch-button"
+              disabled={!models.length}
+            >
               <Play size={14} fill="currentColor" /> Run agent
             </button>
           </div>

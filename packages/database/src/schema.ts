@@ -72,6 +72,33 @@ export const accounts = pgTable(
   ],
 );
 
+export const codexModelCatalogs = pgTable(
+  "codex_model_catalogs",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    models: jsonb("models")
+      .$type<
+        Array<{
+          id: string;
+          displayName?: string;
+          description?: string;
+          isDefault?: boolean;
+        }>
+      >()
+      .notNull(),
+    source: text("source").notNull().default("codex_app_server"),
+    discoveredAt: utc("discovered_at").notNull().defaultNow(),
+    expiresAt: utc("expires_at").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("codex_model_catalogs_account_unique").on(table.accountId),
+  ],
+);
+
 export const sessions = pgTable(
   "sessions",
   {
@@ -192,6 +219,7 @@ export const tasks = pgTable(
       .references(() => repositories.id, { onDelete: "restrict" }),
     title: text("title").notNull(),
     objective: text("objective").notNull(),
+    requestedModel: text("requested_model"),
     status: taskStatus("status").notNull().default("queued"),
     version: integer("version").notNull().default(1),
     branchName: text("branch_name"),
