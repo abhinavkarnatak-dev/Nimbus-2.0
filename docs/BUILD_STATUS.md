@@ -23,6 +23,7 @@ Last updated: 2026-10-06
 - The task workbench can be closed for a full-width conversation and reopened with an accessible control.
 - Task creation accepts the user's objective directly and derives concise session titles server-side instead of asking users to name agent runs.
 - Task creation selects from an account-scoped Codex app-server model catalog. Selected models are validated server-side and persisted per task.
+- GitHub App client foundation validates complete configuration, signs short-lived app JWTs, exchanges one-time user authorization codes, verifies user installations, mints restricted installation tokens, lists authorized repositories, and validates webhook signatures over raw request bytes.
 - PostHog-only observability boundary rejects non-allowlisted content metadata.
 - Desktop and mobile Playwright task creation and refresh recovery checks pass.
 - Next.js and Drizzle security advisories discovered by audit were remediated by patched exact-version upgrades.
@@ -33,7 +34,7 @@ Last updated: 2026-10-06
 - First live-provider vertical slice. Local durability and UI behavior are verified with a deterministic provider, but external credentials are not configured.
 - ChatGPT OAuth completion must invoke the implemented model catalog refresh after token exchange. Live account discovery remains unverified without an approved client.
 - Executor recovery, cancellation propagation, distributed leases, outbox delivery, and reconciliation hardening.
-- GitHub App trusted branch push and idempotent pull request delivery.
+- GitHub App install callback, durable repository synchronization, webhook inbox processing, trusted branch push, and idempotent pull request delivery.
 
 ## Blocked
 
@@ -59,7 +60,7 @@ Last updated: 2026-10-06
 - The local executor advanced a created task to completed and stored six ordered events.
 - SSE replay returned all six durable events after a fresh request.
 - `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` pass.
-- Vitest reports 22 passing tests across state, protocol, model discovery, provider selection, task metadata, workspace, and analytics privacy boundaries.
+- Vitest reports 28 passing tests across state, protocol, model discovery, provider selection, task metadata, workspace, GitHub App security primitives, and analytics privacy boundaries.
 - Playwright reports 2 passing critical-flow tests across desktop and mobile Chromium.
 - `pnpm audit --prod` reports no known vulnerabilities.
 - No live external integration is claimed as verified.
@@ -79,6 +80,6 @@ Last updated: 2026-10-06
 | Redis                | Healthy locally              | Redis 7.4 container health check passed                                   |
 | Codex app-server     | Contract and parser verified | Live OAuth token unavailable                                              |
 | Sign in with ChatGPT | Launch dependency            | Approved client ID unavailable                                            |
-| GitHub App           | Not verified live            | Credentials unavailable                                                   |
+| GitHub App           | Client contract verified     | Live credentials and callback routes unavailable                          |
 | Vercel Sandbox       | Definition type checked      | Credentials unavailable                                                   |
 | PostHog              | Privacy boundary verified    | Live project key unavailable                                              |

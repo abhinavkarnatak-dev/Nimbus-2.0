@@ -32,6 +32,21 @@ There is no `NIMBUS_CODEX_MODEL` variable. After a ChatGPT account is connected,
 
 The app-server catalog is not a guaranteed account entitlement list. A successful inference turn is the final proof that the account can use the selected model. Nimbus records a failed or rejected turn honestly and can ask the user to select another discovered model.
 
+## Live GitHub App variables
+
+These variables are unnecessary for the local fake-provider flow. They become required together when the live GitHub integration is enabled.
+
+| Variable                        | Secret | Purpose                                                      |
+| ------------------------------- | ------ | ------------------------------------------------------------ |
+| `GITHUB_APP_ID`                 | No     | Identifies the GitHub App when signing app JWTs.             |
+| `GITHUB_APP_SLUG`               | No     | Builds the official GitHub App installation URL.             |
+| `GITHUB_APP_CLIENT_ID`          | No     | Starts and validates GitHub user authorization.              |
+| `GITHUB_APP_CLIENT_SECRET`      | Yes    | Exchanges the one-time GitHub authorization code.            |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | Yes    | Signs short-lived app JWTs used to mint installation tokens. |
+| `GITHUB_APP_WEBHOOK_SECRET`     | Yes    | Verifies the raw bytes of incoming GitHub webhooks.          |
+
+See `docs/operations/oauth-setup.md` for exact GitHub App URLs, permissions, events, and credential generation steps.
+
 ## Variables not added yet
 
-GitHub App, Vercel Sandbox, PostHog, object storage, Slack, Gmail, Notion, Twilio, and managed encryption variables are not in `.env.example` yet because their live adapters are not complete. Adding unused secret-shaped variables would make setup confusing and encourage insecure placeholder values. Each adapter must add validation and documentation when it becomes executable.
+Vercel Sandbox, PostHog, object storage, Slack, Gmail, Notion, Twilio, and managed encryption variables are not in `.env.example` yet because their live adapters are not complete. Adding unused secret-shaped variables would make setup confusing and encourage insecure placeholder values. Each adapter must add validation and documentation when it becomes executable.
