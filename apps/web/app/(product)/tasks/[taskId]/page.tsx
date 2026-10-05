@@ -1,5 +1,6 @@
 import { requireIdentity } from "@/lib/auth";
 import { getTaskDetail } from "@/lib/task-data";
+import { LiveAgentWorkspace } from "./live-agent-workspace";
 import {
   AlertTriangle,
   Archive,
@@ -19,14 +20,11 @@ import {
   GitPullRequest,
   History,
   ListChecks,
-  MessageSquareText,
   MoreHorizontal,
   Play,
   RefreshCw,
-  Send,
   ServerCog,
   SquareTerminal,
-  User,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
@@ -130,117 +128,35 @@ export default async function TaskPage({
         </div>
       </section>
 
-      <div className="agent-workspace">
-        <aside className="conversation-pane">
-          <div className="pane-heading">
-            <div>
-              <MessageSquareText size={16} />
-              <strong>Conversation</strong>
-            </div>
-            <span>{data.events.length} events</span>
-          </div>
-          <div className="conversation-scroll">
-            <article className="message user-message">
-              <span className="message-avatar user">
-                <User size={14} />
-              </span>
-              <div>
-                <header>
-                  <strong>You</strong>
-                  <time>
-                    {new Date(data.task.createdAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </time>
-                </header>
-                <p>{data.task.objective}</p>
-              </div>
-            </article>
-            <article className="message agent-message">
-              <span className="message-avatar agent">
-                <Bot size={15} />
-              </span>
-              <div>
-                <header>
-                  <strong>Nimbus</strong>
-                  <span className="model-label">Codex</span>
-                </header>
-                <p>
-                  I accepted the outcome and created a durable run. I will
-                  inspect the repository, choose the next useful action from
-                  evidence, and verify the result before delivery.
-                </p>
-              </div>
-            </article>
-            {data.events
-              .filter((event) => event.sequence > 1)
-              .map((event) => (
-                <ConversationEvent event={event} key={event.id} />
+      <LiveAgentWorkspace
+        taskId={taskId}
+        createdAt={data.task.createdAt}
+        finishedAt={data.task.completedAt}
+        objective={data.task.objective}
+        model={data.task.requestedModel ?? data.thread?.model ?? "Codex"}
+        initialStatus={data.task.status}
+        initialEvents={data.events}
+        workbench={
+          <section className="workbench-pane">
+            <nav className="workbench-tabs" aria-label="Task workspace">
+              {tabs.map(({ id, label, icon: Icon }) => (
+                <Link
+                  className={tab === id ? "active" : ""}
+                  href={`/tasks/${taskId}?tab=${id}`}
+                  key={id}
+                >
+                  <Icon size={14} />
+                  {label}
+                </Link>
               ))}
-          </div>
-          <div className="followup-box">
-            <div>
-              <span className="followup-icon">
-                <Send size={14} />
-              </span>
-              <span>Send a follow-up or add context</span>
+            </nav>
+            <div className="workbench-body">
+              <TaskPanel tab={tab} data={data} />
             </div>
-            <button type="button" aria-label="Send follow-up" disabled>
-              <Send size={14} />
-            </button>
-            <small>Follow-ups resume the same Codex thread</small>
-          </div>
-        </aside>
-
-        <section className="workbench-pane">
-          <nav className="workbench-tabs" aria-label="Task workspace">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <Link
-                className={tab === id ? "active" : ""}
-                href={`/tasks/${taskId}?tab=${id}`}
-                key={id}
-              >
-                <Icon size={14} />
-                {label}
-              </Link>
-            ))}
-          </nav>
-          <div className="workbench-body">
-            <TaskPanel tab={tab} data={data} />
-          </div>
-        </section>
-      </div>
+          </section>
+        }
+      />
     </main>
-  );
-}
-
-function ConversationEvent({ event }: { event: Detail["events"][number] }) {
-  const failed = event.status === "failed";
-  return (
-    <article className="message agent-message">
-      <span className={`message-avatar ${failed ? "warning" : "agent"}`}>
-        {failed ? <AlertTriangle size={14} /> : <Bot size={15} />}
-      </span>
-      <div>
-        <header>
-          <strong>Nimbus</strong>
-          <time>
-            {new Date(event.timestamp).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </time>
-        </header>
-        <p>{event.whatWasDone}</p>
-        {event.whyItWasDone && (
-          <p className="decision-note">
-            <span>Decision</span>
-            {event.whyItWasDone}
-          </p>
-        )}
-      </div>
-    </article>
   );
 }
 

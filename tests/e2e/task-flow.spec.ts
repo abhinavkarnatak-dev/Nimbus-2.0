@@ -14,6 +14,9 @@ test("local onboarding creates a durable task that survives refresh", async ({
   ).toBeVisible();
 
   await page.goto("/tasks/new");
+  await expect(page.getByLabel("Codex model")).toHaveValue(
+    "fake-codex-test-provider",
+  );
   const title = "Fix task stream recovery after a browser refresh";
   await page
     .getByLabel("What should Nimbus do?")
@@ -29,9 +32,21 @@ test("local onboarding creates a durable task that survives refresh", async ({
   await expect(
     page.getByRole("heading", { name: "Agent activity" }),
   ).toBeVisible();
+  await expect(page.locator(".live-agent-presence")).toBeVisible();
+  await expect(page.getByText("Elapsed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close task workbench" }).click();
+  await expect(
+    page.getByRole("button", { name: "Open task workbench" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Open task workbench" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Agent activity" }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: "Plan" })).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
-  await expect(page.getByText("Task accepted", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("strong").filter({ hasText: "Task accepted" }),
+  ).toBeVisible();
 });

@@ -949,6 +949,10 @@ select:focus-visible {
   display: grid;
   grid-template-columns: minmax(330px, 36%) minmax(0, 1fr);
 }
+.agent-workspace.panel-closed {
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+}
 .conversation-pane {
   min-height: 0;
   display: flex;
@@ -1096,6 +1100,128 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   background: #f7f8fa;
+}
+.workbench-shell {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+.workbench-shell > .workbench-pane {
+  flex: 1;
+}
+.workbench-toggle {
+  border: 1px solid #dfe2e7;
+  background: #fff;
+  color: #69707a;
+  cursor: pointer;
+}
+.workbench-toggle:hover {
+  color: var(--accent-dark);
+  border-color: #cfc7f7;
+}
+.workbench-toggle.close {
+  width: 27px;
+  height: 27px;
+  position: absolute;
+  z-index: 4;
+  top: 7px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+}
+.workbench-toggle.reopen {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  box-shadow: 0 4px 18px rgb(20 24 30 / 10%);
+  font-size: 10px;
+  font-weight: 650;
+}
+.live-agent-presence {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #dfdcf5;
+  border-radius: 8px;
+  background: #faf9ff;
+}
+.presence-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.presence-heading strong {
+  font-size: 10px;
+}
+.presence-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgb(108 82 224 / 12%);
+  animation: presence-pulse 1.7s ease-in-out infinite;
+}
+.presence-pulse.done {
+  background: var(--green);
+  animation: none;
+}
+.stream-health {
+  margin-left: auto;
+  color: var(--green);
+  font-size: 7px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.stream-health.reconnecting {
+  color: #b77820;
+}
+.presence-facts {
+  margin-top: 9px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.presence-facts span {
+  min-width: 0;
+  padding: 6px 7px;
+  border-radius: 5px;
+  background: #f1effb;
+}
+.presence-facts small,
+.presence-facts b {
+  display: block;
+}
+.presence-facts small {
+  color: #88849d;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+.presence-facts b {
+  margin-top: 3px;
+  color: #423d58;
+  font-size: 8px;
+  text-transform: capitalize;
+}
+.presence-facts b svg {
+  vertical-align: -2px;
+}
+.live-agent-presence > p {
+  margin: 8px 0 0;
+  color: #66617b;
+  font-size: 8px;
+  line-height: 1.45;
+}
+@keyframes presence-pulse {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
 }
 .workbench-tabs {
   min-height: 42px;

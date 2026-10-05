@@ -11,7 +11,7 @@ export async function GET(
   if (!identity) return new Response("Unauthorized", { status: 401 });
   const { taskId } = await context.params;
   const [owned] = await db()
-    .select({ id: tasks.id })
+    .select({ id: tasks.id, status: tasks.status })
     .from(tasks)
     .where(
       and(
@@ -28,26 +28,63 @@ export async function GET(
   const cursor = Number.isSafeInteger(Number(cursorHeader))
     ? Number(cursorHeader)
     : 0;
-  const events = await db()
-    .select()
-    .from(taskEvents)
-    .where(and(eq(taskEvents.taskId, taskId), gt(taskEvents.sequence, cursor)))
-    .orderBy(asc(taskEvents.sequence));
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     start(controller) {
-      for (const event of events)
-        controller.enqueue(
-          encoder.encode(
-            `id: ${event.sequence}\nevent: task_event\ndata: ${JSON.stringify(event)}\n\n`,
-          ),
-        );
-      controller.enqueue(
-        encoder.encode(
-          `event: replay_complete\ndata: {"lastSequence":${events.at(-1)?.sequence ?? cursor}}\n\n`,
-        ),
-      );
-      controller.close();
+      let currentCursor = cursor;
+      let currentStatus = "";
+      let stopped = false;
+      request.signal.addEventListener("abort", () => {
+        stopped = true;
+      });
+      void (async () => {
+        const deadline = Date.now() + 25_000;
+        try {
+          while (!stopped && Date.now() < deadline) {
+            const [task] = await db()
+              .select({ status: tasks.status })
+              .from(tasks)
+              .where(
+                and(
+                  eq(tasks.id, taskId),
+                  eq(tasks.organizationId, identity.organizationId),
+                ),
+              )
+              .limit(1);
+            if (task && task.status !== currentStatus) {
+              currentStatus = task.status;
+              controller.enqueue(
+                encoder.encode(
+                  `event: task_state\ndata: ${JSON.stringify({ status: task.status })}\n\n`,
+                ),
+              );
+            }
+            const events = await db()
+              .select()
+              .from(taskEvents)
+              .where(
+                and(
+                  eq(taskEvents.taskId, taskId),
+                  gt(taskEvents.sequence, currentCursor),
+                ),
+              )
+              .orderBy(asc(taskEvents.sequence));
+            for (const event of events) {
+              currentCursor = event.sequence;
+              controller.enqueue(
+                encoder.encode(
+                  `id: ${event.sequence}\nevent: task_event\ndata: ${JSON.stringify(event)}\n\n`,
+                ),
+              );
+            }
+            controller.enqueue(encoder.encode(": heartbeat\n\n"));
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+          }
+          if (!stopped) controller.close();
+        } catch (error) {
+          if (!stopped) controller.error(error);
+        }
+      })();
     },
   });
   return new Response(body, {
@@ -55,6 +92,7 @@ export async function GET(
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }
