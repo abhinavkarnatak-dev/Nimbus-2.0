@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { createProviderConfiguration } from "./provider-factory.js";
 
 describe("createProviderConfiguration", () => {
+  it("bootstraps connected-user execution without an operator access token", () => {
+    const configuration = createProviderConfiguration({
+      NIMBUS_CODING_PROVIDER: "connected",
+      NODE_ENV: "production",
+    });
+    expect(configuration.provider.kind).toBe("codex-app-server");
+    expect(configuration.fallbackModel).toBeUndefined();
+  });
   it("selects the deterministic provider only when explicitly requested", () => {
     const configuration = createProviderConfiguration({
       NIMBUS_CODING_PROVIDER: "fake",

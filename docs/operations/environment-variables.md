@@ -59,6 +59,8 @@ PostHog project tokens are designed to be public. Never expose a PostHog persona
 
 ## Executor
 
+For the combined server-installed CLI runtime, use `NIMBUS_CODING_PROVIDER=connected`. It needs no operator-wide `NIMBUS_CODEX_ACCESS_TOKEN`: tasks use their owner's device connection. See [server device login](server-device-login.md) for the explicit opt-in, upstream support limitation, storage, secret, and deployment requirements. Do not deploy this executor separately without first replacing its loopback execution bridge and shared filesystem assumptions.
+
 ```dotenv
 DATABASE_URL=postgresql://nimbus:nimbus@localhost:55432/nimbus
 EXECUTOR_PORT=3020

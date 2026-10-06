@@ -1,4 +1,4 @@
-import { localBridgeKey } from "@nimbus/codex";
+import { internalServiceUrl, localBridgeKey } from "@nimbus/codex";
 import { nimbusRepositoryRoot } from "./repository-root";
 
 export async function remoteWorkspace(
@@ -8,9 +8,10 @@ export async function remoteWorkspace(
   if (!/^task_[a-f0-9]{32}$/.test(taskId))
     throw new Error("Invalid workspace session");
   const response = await fetch(
-    `http://127.0.0.1:3020/internal/workspace/${taskId}`,
+    `${internalServiceUrl("NIMBUS_EXECUTOR_URL", "http://127.0.0.1:3020")}/internal/workspace/${taskId}`,
     {
       method: "POST",
+      redirect: "error",
       headers: {
         "content-type": "application/json",
         "x-nimbus-executor-key": await localBridgeKey(nimbusRepositoryRoot()),

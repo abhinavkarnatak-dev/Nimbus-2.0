@@ -18,10 +18,7 @@ import {
   tasks,
   workspaces,
 } from "@nimbus/database";
-import {
-  connectedDeviceProvider,
-  isLocalDeviceRequest,
-} from "@/lib/codex-device";
+import { connectedDeviceProvider } from "@/lib/codex-device";
 import {
   sessionTitlePrompt,
   presentSessionTurn,
@@ -48,8 +45,6 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ taskId: string }> },
 ) {
-  if (!isLocalDeviceRequest(request))
-    return NextResponse.json({ error: "Local executor only" }, { status: 403 });
   const repositoryRoot = nimbusRepositoryRoot();
   const key = request.headers.get("x-nimbus-executor-key") ?? "";
   if (!validBridgeKey(key, await localBridgeKey(repositoryRoot)))

@@ -4,9 +4,43 @@ vi.mock("node:fs/promises", () => ({
   writeFile: vi.fn(),
   readFile: async () => "a".repeat(64),
 }));
-import { LocalConnectedCodexProvider, validBridgeKey } from "./local-bridge.js";
-afterEach(() => vi.unstubAllGlobals());
+import {
+  internalServiceUrl,
+  localBridgeKey,
+  LocalConnectedCodexProvider,
+  validBridgeKey,
+} from "./local-bridge.js";
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 describe("local Codex execution bridge", () => {
+  it("requires a shared server credential in production instead of a local key file", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NIMBUS_EXECUTOR_SECRET", "");
+    await expect(localBridgeKey("unused")).rejects.toThrow(
+      "required in production",
+    );
+    vi.stubEnv("NIMBUS_EXECUTOR_SECRET", "b".repeat(64));
+    expect(await localBridgeKey("unused")).toBe("b".repeat(64));
+  });
+  it("never sends a shared secret to insecure remote or credentialed URLs", () => {
+    for (const value of [
+      "http://remote.example",
+      "https://user:password@remote.example",
+      "https://remote.example/path",
+      "https://remote.example/?secret=1",
+    ]) {
+      vi.stubEnv("NIMBUS_WEB_INTERNAL_URL", value);
+      expect(() =>
+        internalServiceUrl("NIMBUS_WEB_INTERNAL_URL", "http://127.0.0.1:3000"),
+      ).toThrow();
+    }
+    vi.stubEnv("NIMBUS_WEB_INTERNAL_URL", "http://127.0.0.1:10000");
+    expect(internalServiceUrl("NIMBUS_WEB_INTERNAL_URL", "unused")).toBe(
+      "http://127.0.0.1:10000",
+    );
+  });
   it("rejects invalid, unequal, and non-ASCII credentials", () => {
     expect(validBridgeKey("a".repeat(64), "a".repeat(64))).toBe(true);
     expect(validBridgeKey("b".repeat(64), "a".repeat(64))).toBe(false);

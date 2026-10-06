@@ -3,6 +3,7 @@ import { once } from "node:events";
 
 import { NdjsonParser, type ParsedLine } from "./ndjson.js";
 import { parseCodexRateLimits } from "./rate-limits.js";
+import { deviceAuthEnabled } from "./device-auth-policy.js";
 import type {
   CodingAgentEvent,
   CodingAgentProvider,
@@ -42,7 +43,7 @@ const chatOnlyConfig = {
 export interface CodexAppServerOptions {
   onToolCall?: ((tool: string, args: unknown) => Promise<unknown>) | undefined;
   accessToken?: string;
-  localDeviceAuth?: { home: string };
+  localDeviceAuth?: { home: string; persistent?: boolean };
   executableArgs?: string[];
   onLoginCompleted?: (loginId: string, success: boolean) => void;
   codexExecutable?: string;
@@ -65,6 +66,13 @@ export class CodexAppServerProvider implements CodingAgentProvider {
   readonly #remoteEnvironments = new Set<string>();
   readonly #remoteThreads = new Set<string>();
   readonly #chatThreads = new Set<string>();
+
+  get hasActiveTurn() {
+    return this.#activeThreadId !== undefined;
+  }
+  get isRunning() {
+    return Boolean(this.#process) && !this.#fatal;
+  }
 
   async startChatThread(model: string): Promise<string> {
     const result = asRecord(
@@ -120,8 +128,18 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     if (!options.accessToken && !options.localDeviceAuth)
       throw new Error("A short-lived ChatGPT OAuth access token is required");
     this.#options = options;
-    if (options.localDeviceAuth && process.env.NODE_ENV === "production")
-      throw new Error("Local device login is disabled in production");
+    if (options.localDeviceAuth && !deviceAuthEnabled())
+      throw new Error(
+        "Device login is disabled; server operators must explicitly configure it",
+      );
+    if (
+      options.localDeviceAuth &&
+      process.env.NODE_ENV === "production" &&
+      !options.localDeviceAuth.persistent
+    )
+      throw new Error(
+        "Server device login requires persistent credential storage",
+      );
   }
 
   async start(): Promise<void> {
@@ -172,13 +190,18 @@ export class CodexAppServerProvider implements CodingAgentProvider {
           "--listen",
           "stdio://",
           "-c",
-          'cli_auth_credentials_store="ephemeral"',
+          `cli_auth_credentials_store="${this.#options.localDeviceAuth.persistent ? "file" : "ephemeral"}"`,
           ...(process.platform === "win32"
             ? ["-c", 'windows.sandbox="unelevated"']
             : []),
         ]
       : args;
     this.#fatal = undefined;
+    this.#events = [];
+    this.#remoteEnvironments.clear();
+    this.#remoteThreads.clear();
+    this.#chatThreads.clear();
+    this.#activeThreadId = undefined;
     this.#process = spawn(
       /*turbopackIgnore: true*/
       this.#options.codexExecutable ?? "codex",
@@ -221,12 +244,23 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     const child = this.#process;
     if (!child) return;
     this.#process = undefined;
-    if (!child.killed) child.kill("SIGTERM");
+    if (child.exitCode != null || child.signalCode != null) return;
+    let exited = false;
+    let timer: NodeJS.Timeout | undefined;
+    const exit = once(child, "exit")
+      .then(() => {
+        exited = true;
+      })
+      .catch(() => {});
+    child.kill("SIGTERM");
     await Promise.race([
-      once(child, "exit"),
-      new Promise((resolve) => setTimeout(resolve, 5_000)),
+      exit,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 5_000);
+      }),
     ]);
-    if (!child.killed) child.kill("SIGKILL");
+    if (timer) clearTimeout(timer);
+    if (!exited) child.kill("SIGKILL");
   }
 
   async listModels() {
@@ -298,6 +332,10 @@ export class CodexAppServerProvider implements CodingAgentProvider {
 
   async cancelDeviceLogin(loginId: string) {
     await this.#request("account/login/cancel", { loginId });
+  }
+
+  async logoutDevice() {
+    await this.#request("account/logout", {});
   }
 
   async startThread(input: StartThreadInput): Promise<string> {

@@ -1,6 +1,7 @@
 import {
   CodexAppServerProvider,
   FakeCodingAgentProvider,
+  LocalConnectedCodexProvider,
   requireProductionProvider,
   type CodingAgentProvider,
 } from "@nimbus/codex";
@@ -13,6 +14,10 @@ export interface ProviderConfiguration {
 export function createProviderConfiguration(
   environment: NodeJS.ProcessEnv = process.env,
 ): ProviderConfiguration {
+  if (environment.NIMBUS_CODING_PROVIDER === "connected") {
+    // No operator-wide token: each real task uses its owner's device connection.
+    return { provider: new LocalConnectedCodexProvider("bootstrap", "") };
+  }
   if (environment.NIMBUS_CODING_PROVIDER === "fake") {
     const provider = new FakeCodingAgentProvider();
     requireProductionProvider(provider, environment.NODE_ENV);
@@ -37,6 +42,6 @@ export function createProviderConfiguration(
   }
 
   throw new Error(
-    "NIMBUS_CODING_PROVIDER must be explicitly set to fake or codex",
+    "NIMBUS_CODING_PROVIDER must be explicitly set to fake, connected, or codex",
   );
 }

@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         status: "unavailable",
-        error: "Personal Codex account limits are available on localhost only.",
+        error: "Codex account limits are not enabled for this server origin.",
       },
       { headers },
     );

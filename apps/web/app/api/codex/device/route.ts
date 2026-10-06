@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { currentIdentity } from "@/lib/auth";
+import { deviceMutationAllowed } from "@nimbus/codex";
 import {
   deviceConnection,
+  DeviceConnectionError,
   disconnectDevice,
   isLocalDeviceRequest,
 } from "@/lib/codex-device";
@@ -15,7 +17,10 @@ async function handle(
 ) {
   if (!isLocalDeviceRequest(request))
     return NextResponse.json(
-      { error: "Codex device connection is available only on localhost" },
+      {
+        error:
+          "Codex device login is not enabled for this server origin. Check NIMBUS_DEVICE_AUTH_ENABLED and AUTH_URL.",
+      },
       { status: 403 },
     );
   const identity = await currentIdentity();
@@ -27,13 +32,7 @@ async function handle(
         { error: "Write permission required" },
         { status: 403 },
       );
-    let origin: URL;
-    try {
-      origin = new URL(request.headers.get("origin") ?? "");
-    } catch {
-      return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
-    }
-    if (origin.host !== request.headers.get("host"))
+    if (!deviceMutationAllowed(request))
       return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
   }
   const key = `${identity.organizationId}:${identity.userId}`;
@@ -42,11 +41,13 @@ async function handle(
     return NextResponse.json(await deviceConnection(key, action === "start"), {
       headers: { "cache-control": "no-store" },
     });
-  } catch {
+  } catch (error) {
     return NextResponse.json(
       {
         error:
-          "Codex could not start device login. Check that Codex CLI is installed and device-code login is enabled in ChatGPT security settings.",
+          error instanceof DeviceConnectionError
+            ? error.message
+            : "Codex device login failed. Check the server configuration and enable device-code login in ChatGPT security settings, then try again.",
       },
       { status: 503, headers: { "cache-control": "no-store" } },
     );

@@ -6,6 +6,7 @@ import { E2BSessionManager } from "./e2b-session-manager.js";
 import { localBridgeKey, validBridgeKey } from "@nimbus/codex";
 
 const port = Number(process.env.EXECUTOR_PORT ?? "3020");
+const host = process.env.EXECUTOR_HOST ?? "127.0.0.1";
 const repositoryRoot = resolve(process.cwd(), "../..");
 const sessions = process.env.E2B_API_KEY?.trim()
   ? new E2BSessionManager(repositoryRoot)
@@ -28,13 +29,11 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (!sessions) {
-      response
-        .writeHead(503)
-        .end(
-          JSON.stringify({
-            error: "E2B is not configured; local fallback is forbidden",
-          }),
-        );
+      response.writeHead(503).end(
+        JSON.stringify({
+          error: "E2B is not configured; local fallback is forbidden",
+        }),
+      );
       return;
     }
     try {
@@ -64,16 +63,12 @@ const server = createServer(async (request, response) => {
         })
         .end(JSON.stringify(result));
     } catch (error) {
-      response
-        .writeHead(503, { "content-type": "application/json" })
-        .end(
-          JSON.stringify({
-            error:
-              error instanceof Error
-                ? error.message
-                : "Remote workspace failed",
-          }),
-        );
+      response.writeHead(503, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          error:
+            error instanceof Error ? error.message : "Remote workspace failed",
+        }),
+      );
     }
     return;
   }
@@ -90,8 +85,8 @@ const server = createServer(async (request, response) => {
   }
   response.writeHead(404).end();
 });
-await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
-console.log(`Nimbus executor listening on http://localhost:${String(port)}`);
+await new Promise<void>((resolve) => server.listen(port, host, resolve));
+console.log(`Nimbus executor listening on ${host}:${String(port)}`);
 await worker.start();
 
 const shutdown = async () => {

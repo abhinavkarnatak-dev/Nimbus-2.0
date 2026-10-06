@@ -73,4 +73,16 @@ describe("isSelectableModel", () => {
       vi.unstubAllEnvs();
     }
   });
+  it("discovers the user's device catalog in a configured production runtime", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    fixture.connected = true;
+    try {
+      expect((await getSelectableCodexModels("user-a", "org-a"))[0]!.id).toBe(
+        "live-account-model",
+      );
+    } finally {
+      fixture.connected = false;
+      vi.unstubAllEnvs();
+    }
+  });
 });

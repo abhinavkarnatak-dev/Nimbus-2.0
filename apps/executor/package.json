@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env.local src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node --env-file-if-exists=.env.local dist/index.js",
+    "start": "node --env-file-if-exists=.env.local --import tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
@@ -20,12 +20,12 @@
     "@nimbus/shared": "workspace:*",
     "drizzle-orm": "0.45.3",
     "e2b": "2.52.1",
+    "tsx": "4.20.6",
     "ws": "8.18.3"
   },
   "devDependencies": {
     "@types/node": "24.7.0",
     "@types/ws": "8.18.1",
-    "tsx": "4.20.6",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   }

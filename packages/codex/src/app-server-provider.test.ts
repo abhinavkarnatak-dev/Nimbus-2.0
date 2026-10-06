@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
+import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const transport = vi.hoisted(() => ({
@@ -110,6 +111,7 @@ vi.mock("node:child_process", () => ({
 import { CodexAppServerProvider } from "./app-server-provider.js";
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   transport.requests = [];
   transport.exitCode = 0;
   transport.toolCall = false;
@@ -124,6 +126,41 @@ const create = () =>
   });
 
 describe("Codex execution contract", () => {
+  it("fails closed for server device login unless explicitly enabled and persistent", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NIMBUS_DEVICE_AUTH_ENABLED", "false");
+    expect(
+      () =>
+        new CodexAppServerProvider({
+          localDeviceAuth: { home: "/private", persistent: true },
+        }),
+    ).toThrow("disabled");
+    vi.stubEnv("NIMBUS_DEVICE_AUTH_ENABLED", "true");
+    expect(
+      () =>
+        new CodexAppServerProvider({ localDeviceAuth: { home: "/private" } }),
+    ).toThrow("persistent");
+  });
+  it("uses the user's private file store without exposing server secrets to Codex", async () => {
+    vi.stubEnv("AUTH_SECRET", "private-session-secret");
+    vi.stubEnv("NIMBUS_EXECUTOR_SECRET", "private-internal-secret");
+    const provider = new CodexAppServerProvider({
+      localDeviceAuth: { home: "/private/user-a", persistent: true },
+      requestTimeoutMs: 500,
+    });
+    await provider.start();
+    const call = vi.mocked(spawn).mock.calls.at(-1)!;
+    expect(call[1]).toContain('cli_auth_credentials_store="file"');
+    const options = call[2] as { env: Record<string, string> };
+    expect(options.env.CODEX_HOME).toBe("/private/user-a");
+    expect(options.env.AUTH_SECRET).toBeUndefined();
+    expect(options.env.NIMBUS_EXECUTOR_SECRET).toBeUndefined();
+    await provider.logoutDevice();
+    expect(transport.requests.some((r) => r.method === "account/logout")).toBe(
+      true,
+    );
+    await provider.stop();
+  });
   it("refuses general chat when the runtime fails to confirm disabled environments", async () => {
     const provider = create();
     await provider.start();

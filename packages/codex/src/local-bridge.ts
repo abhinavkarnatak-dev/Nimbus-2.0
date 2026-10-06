@@ -11,8 +11,16 @@ import type {
 } from "./provider.js";
 
 export async function localBridgeKey(repositoryRoot: string): Promise<string> {
+  const configured = process.env.NIMBUS_EXECUTOR_SECRET?.trim();
+  if (configured) {
+    if (!/^[a-f0-9]{64}$/.test(configured))
+      throw new Error(
+        "NIMBUS_EXECUTOR_SECRET must be 64 lowercase hexadecimal characters",
+      );
+    return configured;
+  }
   if (process.env.NODE_ENV === "production")
-    throw new Error("Local execution bridge is disabled in production");
+    throw new Error("NIMBUS_EXECUTOR_SECRET is required in production");
   const directory = resolve(repositoryRoot, ".nimbus", "control");
   const file = resolve(directory, "executor-bridge.key");
   await mkdir(directory, { recursive: true });
@@ -28,6 +36,29 @@ export async function localBridgeKey(repositoryRoot: string): Promise<string> {
   if (!/^[a-f0-9]{64}$/.test(key))
     throw new Error("Invalid local executor credential");
   return key;
+}
+
+export function internalServiceUrl(
+  variable: "NIMBUS_WEB_INTERNAL_URL" | "NIMBUS_EXECUTOR_URL",
+  fallback: string,
+): string {
+  const url = new URL(process.env[variable] ?? fallback);
+  if (
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/" ||
+    (url.protocol !== "https:" &&
+      !(
+        url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+      ))
+  )
+    throw new Error(
+      `${variable} must be an HTTPS origin or a loopback HTTP origin`,
+    );
+  return url.origin;
 }
 
 export function validBridgeKey(supplied: string, expected: string): boolean {
@@ -113,9 +144,10 @@ export class LocalConnectedCodexProvider implements CodingAgentProvider {
   async #fetch(operation: string, fields: object = {}, signal?: AbortSignal) {
     const key = await localBridgeKey(this.repositoryRoot);
     const response = await fetch(
-      `http://127.0.0.1:3000/api/internal/codex/${encodeURIComponent(this.taskId)}`,
+      `${internalServiceUrl("NIMBUS_WEB_INTERNAL_URL", "http://127.0.0.1:3000")}/api/internal/codex/${encodeURIComponent(this.taskId)}`,
       {
         method: "POST",
+        redirect: "error",
         headers: {
           "content-type": "application/json",
           "x-nimbus-executor-key": key,

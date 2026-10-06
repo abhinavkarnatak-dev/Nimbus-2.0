@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Copy, LoaderCircle, X } from "lucide-react";
 import styles from "./codex-connection.module.css";
 
@@ -24,18 +24,34 @@ export function CodexConnection() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
   const [modal, setModal] = useState<"connect" | "disconnect" | null>(null);
+  const requestVersion = useRef(0);
   useEffect(() => {
     const controller = new AbortController();
+    let refreshing = false;
     const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      const version = requestVersion.current;
       try {
         const response = await fetch("/api/codex/device", {
           signal: controller.signal,
           cache: "no-store",
         });
-        if (response.ok)
-          setConnection((await response.json()) as ConnectionState);
+        const result = (await response.json()) as ConnectionState;
+        if (version !== requestVersion.current || controller.signal.aborted)
+          return;
+        if (response.ok) {
+          setConnection(result);
+          if (result.status === "connected") {
+            setCopied(false);
+            setModal((current) => (current === "connect" ? null : current));
+          }
+        } else
+          setError(result.error ?? "Could not refresh the Codex connection.");
       } catch {
         /* Keep the last confirmed connection state during network failures. */
+      } finally {
+        refreshing = false;
       }
     };
     void refresh();
@@ -55,13 +71,8 @@ export function CodexConnection() {
       appShell.style.filter = previousFilter;
     };
   }, [modal]);
-  useEffect(() => {
-    if (connection.status === "connected" && modal === "connect") {
-      setCopied(false);
-      setModal(null);
-    }
-  }, [connection.status, modal]);
   async function request(method: "POST" | "DELETE") {
+    requestVersion.current++;
     setBusy(true);
     setError("");
     try {
@@ -70,6 +81,10 @@ export function CodexConnection() {
       if (!response.ok)
         throw new Error(result.error ?? "Could not connect to Codex");
       setConnection(result);
+      if (result.status === "connected") {
+        setCopied(false);
+        setModal((current) => (current === "connect" ? null : current));
+      }
       if (method === "POST" && result.status === "pending") {
         setCopied(false);
         setModal("connect");

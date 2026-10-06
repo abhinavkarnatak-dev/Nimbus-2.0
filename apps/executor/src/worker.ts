@@ -43,7 +43,7 @@ import type { E2BSessionManager } from "./e2b-session-manager.js";
 export class TaskWorker {
   readonly #provider: CodingAgentProvider;
   readonly #fallbackModel: string | undefined;
-  readonly #workspace: LocalWorkspaceProvider;
+  readonly #workspace: LocalWorkspaceProvider | undefined;
   readonly #repositoryRoot: string;
   #timer: NodeJS.Timeout | undefined;
   #busy = false;
@@ -59,12 +59,21 @@ export class TaskWorker {
     const configuration = createProviderConfiguration();
     this.#provider = configuration.provider;
     this.#fallbackModel = configuration.fallbackModel;
-    this.#workspace = new LocalWorkspaceProvider(repositoryRoot);
+    this.#workspace =
+      configuration.provider.kind === "fake"
+        ? new LocalWorkspaceProvider(repositoryRoot)
+        : undefined;
   }
 
   async start(): Promise<void> {
     await this.#provider.start();
-    this.#timer = setInterval(() => void this.tick(), 2_000);
+    this.#timer = setInterval(
+      () =>
+        void this.tick().catch(() =>
+          console.error("Executor polling failed; retrying on next tick"),
+        ),
+      2_000,
+    );
     await this.tick();
   }
 
@@ -104,7 +113,8 @@ export class TaskWorker {
     const provider =
       task.requestedModel &&
       task.requestedModel !== "fake-codex-test-provider" &&
-      process.env.NODE_ENV !== "production"
+      (process.env.NODE_ENV !== "production" ||
+        process.env.NIMBUS_CODING_PROVIDER === "connected")
         ? new LocalConnectedCodexProvider(task.id, this.#repositoryRoot)
         : this.#provider;
     const correlationId = `corr_${randomUUID().replaceAll("-", "")}`;
@@ -319,7 +329,7 @@ export class TaskWorker {
       if (
         !remote &&
         existingWorkspace &&
-        existingWorkspace.provider !== this.#workspace.kind
+        existingWorkspace.provider !== this.#workspace!.kind
       )
         throw new Error("Workspace provider mismatch");
       const remoteSession =
@@ -333,10 +343,10 @@ export class TaskWorker {
         : remoteSession
           ? remoteSession.workspace
           : existingWorkspace
-            ? await this.#workspace.resume(
+            ? await this.#workspace!.resume(
                 existingWorkspace.providerWorkspaceId,
               )
-            : await this.#workspace.provision(task.id);
+            : await this.#workspace!.provision(task.id);
       const workspaceId = repositoryMode
         ? (existingWorkspace?.id ?? `ws_${randomUUID().replaceAll("-", "")}`)
         : null;
@@ -346,7 +356,7 @@ export class TaskWorker {
           .values({
             id: workspaceId!,
             taskId: task.id,
-            provider: this.#workspace.kind,
+            provider: this.#workspace!.kind,
             providerWorkspaceId: workspace.id,
             status: "ready",
             resourceLimits: {

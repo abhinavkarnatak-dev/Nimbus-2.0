@@ -121,12 +121,14 @@ export async function POST(request: Request) {
     }
   }
   if (
-    process.env.NIMBUS_CODING_PROVIDER === "fake" &&
+    ["fake", "connected"].includes(process.env.NIMBUS_CODING_PROVIDER ?? "") &&
     input.model !== "fake-codex-test-provider"
   )
     try {
       if (!isLocalDeviceRequest(request))
-        throw new Error("Local Codex execution requires localhost");
+        throw new Error(
+          "Codex device execution is not enabled for this origin",
+        );
       await connectedDeviceProvider(
         `${identity.organizationId}:${identity.userId}`,
       );

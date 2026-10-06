@@ -37,14 +37,16 @@ export async function getSelectableCodexModels(
   userId: string,
   organizationId?: string,
 ): Promise<SelectableCodexModel[]> {
-  if (organizationId && process.env.NODE_ENV !== "production") {
+  if (organizationId) {
     const requestHeaders = await headers();
     if (
       isLocalDeviceRequest(
         new Request("http://localhost", { headers: requestHeaders }),
       )
     ) {
-      const connection = await deviceConnection(`${organizationId}:${userId}`);
+      const connection = await deviceConnection(
+        `${organizationId}:${userId}`,
+      ).catch(() => ({ status: "unavailable" }));
       if (connection.status === "connected" && "models" in connection)
         return selectableModels(connection.models ?? []);
     }
