@@ -73,7 +73,13 @@ export function LandingPage() {
     const target = document.getElementById(targetId);
     if (!target) return;
     event.preventDefault();
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.scrollTo({
+      top: Math.max(
+        0,
+        target.getBoundingClientRect().top + window.scrollY - 24,
+      ),
+      behavior: "smooth",
+    });
     window.history.replaceState(null, "", `#${targetId}`);
   };
 

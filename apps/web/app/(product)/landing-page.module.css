@@ -13,10 +13,6 @@
   background: var(--landing-bg);
   scroll-behavior: smooth;
 }
-:global(#how-it-works),
-:global(#why-nimbus) {
-  scroll-margin-top: 24px;
-}
 .pointerGlow {
   position: fixed;
   z-index: 0;
