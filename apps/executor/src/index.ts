@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { TaskWorker } from "./worker.js";
 import { E2BSessionManager } from "./e2b-session-manager.js";
 import { localBridgeKey, validBridgeKey } from "@nimbus/codex";
+import { startEmailNotificationPoller } from "./email-notification-poller.js";
 
 const port = Number(process.env.EXECUTOR_PORT ?? "3020");
 const host = process.env.EXECUTOR_HOST ?? "127.0.0.1";
@@ -87,9 +88,11 @@ const server = createServer(async (request, response) => {
 });
 await new Promise<void>((resolve) => server.listen(port, host, resolve));
 console.log(`Nimbus executor listening on ${host}:${String(port)}`);
+const stopEmailNotifications = startEmailNotificationPoller(bridgeKey);
 await worker.start();
 
 const shutdown = async () => {
+  stopEmailNotifications();
   server.close();
   await worker.stop();
   await sessions?.close();

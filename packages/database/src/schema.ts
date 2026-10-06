@@ -530,6 +530,53 @@ export const pullRequests = pgTable(
   ],
 );
 
+// Notification storage is independent of task execution and PR publishing.
+export const emailNotificationSettings = pgTable(
+  "email_notification_settings",
+  {
+    id: text("id").primaryKey(),
+    enabledAt: utc("enabled_at").notNull().defaultNow(),
+  },
+);
+export const emailNotifications = pgTable(
+  "email_notifications",
+  {
+    id: text("id").primaryKey(),
+    pullRequestId: text("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    availableAt: utc("available_at").notNull().defaultNow(),
+    leaseUntil: utc("lease_until"),
+    leaseToken: text("lease_token"),
+    firstAttemptAt: utc("first_attempt_at"),
+    sentAt: utc("sent_at"),
+    providerMessageId: text("provider_message_id"),
+    lastError: text("last_error"),
+    ...timestamps,
+  },
+  (table) => [
+    index("email_notifications_pending_idx").on(
+      table.status,
+      table.availableAt,
+    ),
+    check(
+      "email_notifications_event_valid",
+      sql`${table.event} IN ('created','merged','closed')`,
+    ),
+    check(
+      "email_notifications_status_valid",
+      sql`${table.status} IN ('pending','sending','sent','failed')`,
+    ),
+  ],
+);
+
 export const skills = pgTable("skills", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").references(() => organizations.id, {

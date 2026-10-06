@@ -100,3 +100,7 @@ Only `DATABASE_URL` is needed. Docker Compose supplies the local PostgreSQL conn
 ## Existing configuration migration
 
 Recognized values were mechanically split without printing secrets. Existing nonempty service values were preserved. The old root `.env` was moved to ignored `.nimbus/env-backups/root.env.pre-service-split` for recovery; no process loads it. Protect this backup like any credential file. Restart the relevant service after editing its configuration.
+
+## PR email notifications
+
+Optional web-only variables: `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (a verified Resend-domain sender). Missing configuration disables email only. `AUTH_URL` supplies links. Run migration 0012 before enabling. See [PR email notifications](./pr-email-notifications.md) for delivery, retries, and a test command. Never prefix the API key with `NEXT_PUBLIC_`.
