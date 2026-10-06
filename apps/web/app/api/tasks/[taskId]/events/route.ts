@@ -1,4 +1,13 @@
-import { and, asc, db, eq, gt, taskEvents, tasks } from "@nimbus/database";
+import {
+  activeRequestId,
+  and,
+  asc,
+  db,
+  eq,
+  gt,
+  taskEvents,
+  tasks,
+} from "@nimbus/database";
 import { currentIdentity } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +42,7 @@ export async function GET(
     start(controller) {
       let currentCursor = cursor;
       let currentStatus = "";
+      let currentRequest = "";
       let stopped = false;
       request.signal.addEventListener("abort", () => {
         stopped = true;
@@ -51,11 +61,17 @@ export async function GET(
                 ),
               )
               .limit(1);
-            if (task && task.status !== currentStatus) {
+            const messageId = task ? await activeRequestId(taskId) : null;
+            if (
+              task &&
+              (task.status !== currentStatus ||
+                currentRequest !== (messageId ?? ""))
+            ) {
               currentStatus = task.status;
+              currentRequest = messageId ?? "";
               controller.enqueue(
                 encoder.encode(
-                  `event: task_state\ndata: ${JSON.stringify({ status: task.status })}\n\n`,
+                  `event: task_state\ndata: ${JSON.stringify({ status: task.status, messageId })}\n\n`,
                 ),
               );
             }
@@ -78,7 +94,14 @@ export async function GET(
               );
             }
             controller.enqueue(encoder.encode(": heartbeat\n\n"));
-            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            await new Promise((resolve) =>
+              setTimeout(
+                resolve,
+                ["running", "provisioning"].includes(task?.status ?? "")
+                  ? 250
+                  : 1_000,
+              ),
+            );
           }
           if (!stopped) controller.close();
         } catch (error) {

@@ -1,0 +1,117 @@
+.title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.title h1,
+.title a {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.edit:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.edit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.editor {
+  min-width: 0;
+  width: min(440px, 100%);
+}
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.inputRow input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+.inputRow input:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
+}
+.error {
+  display: block;
+  margin-top: 4px;
+  color: var(--red);
+  font-size: 12px;
+}
+.tableScroll {
+  overflow-x: auto;
+}
+.historyTable {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.historyTable th {
+  padding: 12px 20px;
+  background: var(--panel-subtle);
+  border-bottom: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.historyTable td {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  font-size: 14px;
+}
+.historyTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+.historyTable tbody tr:hover {
+  background: var(--panel-subtle);
+}
+.historyTable th:first-child {
+  width: 45%;
+}
+.historyTable th:nth-child(2) {
+  width: 30%;
+}
+.historyTable time {
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: 12px;
+}
+.objective {
+  display: block;
+  margin-top: 4px;
+  max-width: 480px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--faint);
+}

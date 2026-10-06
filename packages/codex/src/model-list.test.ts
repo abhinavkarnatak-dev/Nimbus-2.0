@@ -30,4 +30,31 @@ describe("parseModelListResult", () => {
       parseModelListResult({ models: [{ name: "missing-id" }, null] }),
     ).toEqual([]);
   });
+  it("preserves model-specific effort options and hides hidden models", () => {
+    expect(
+      parseModelListResult({
+        data: [
+          {
+            id: "model-a",
+            defaultReasoningEffort: "high",
+            supportedReasoningEfforts: [
+              { reasoningEffort: "high", description: "More thorough" },
+              { reasoningEffort: "low", description: "Faster" },
+              { description: "Malformed" },
+            ],
+          },
+          { id: "hidden-model", hidden: true },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "model-a",
+        defaultReasoningEffort: "high",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "high", description: "More thorough" },
+          { reasoningEffort: "low", description: "Faster" },
+        ],
+      },
+    ]);
+  });
 });

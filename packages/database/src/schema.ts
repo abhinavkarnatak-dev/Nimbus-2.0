@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -45,6 +46,7 @@ export const users = pgTable(
     email: text("email").notNull(),
     name: text("name").notNull(),
     avatarUrl: text("avatar_url"),
+    onboardingCompletedAt: utc("onboarding_completed_at"),
     ...timestamps,
   },
   (table) => [uniqueIndex("users_email_unique").on(table.email)],
@@ -72,6 +74,21 @@ export const accounts = pgTable(
   ],
 );
 
+export const agentInstructions = pgTable(
+  "agent_instructions",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    content: text("content").notNull().default(""),
+    ...timestamps,
+  },
+  (table) => [primaryKey({ columns: [table.organizationId, table.userId] })],
+);
+
 export const codexModelCatalogs = pgTable(
   "codex_model_catalogs",
   {
@@ -86,6 +103,11 @@ export const codexModelCatalogs = pgTable(
           displayName?: string;
           description?: string;
           isDefault?: boolean;
+          defaultReasoningEffort?: string;
+          supportedReasoningEfforts?: Array<{
+            reasoningEffort: string;
+            description: string;
+          }>;
         }>
       >()
       .notNull(),
@@ -214,12 +236,18 @@ export const tasks = pgTable(
     createdByUserId: text("created_by_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    repositoryId: text("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "restrict" }),
+    repositoryId: text("repository_id").references(() => repositories.id, {
+      onDelete: "restrict",
+    }),
     title: text("title").notNull(),
     objective: text("objective").notNull(),
+    titleGeneratedAt: utc("title_generated_at"),
+    selectedSkillIds: jsonb("selected_skill_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     requestedModel: text("requested_model"),
+    requestedReasoningEffort: text("requested_reasoning_effort"),
     status: taskStatus("status").notNull().default("queued"),
     version: integer("version").notNull().default(1),
     branchName: text("branch_name"),
@@ -232,6 +260,39 @@ export const tasks = pgTable(
   (table) => [
     index("tasks_org_status_idx").on(table.organizationId, table.status),
     index("tasks_repo_created_idx").on(table.repositoryId, table.createdAt),
+  ],
+);
+
+export const taskMessages = pgTable(
+  "task_messages",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    content: text("content").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    selectedSkills: jsonb("selected_skills")
+      .$type<import("@nimbus/shared").SkillSnapshot[]>()
+      .notNull()
+      .default([]),
+    status: text("status").notNull().default("queued"),
+    completedAt: utc("completed_at"),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("task_messages_request_unique").on(
+      table.taskId,
+      table.idempotencyKey,
+    ),
+    index("task_messages_pending_idx").on(table.taskId, table.status),
+    check(
+      "task_messages_status_valid",
+      sql`${table.status} IN ('queued','running','completed','failed','cancelling','cancelled')`,
+    ),
   ],
 );
 
@@ -346,9 +407,9 @@ export const codexThreads = pgTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    workspaceId: text("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "restrict" }),
+    workspaceId: text("workspace_id").references(() => workspaces.id, {
+      onDelete: "restrict",
+    }),
     providerThreadId: text("provider_thread_id").notNull(),
     model: text("model").notNull(),
     providerConfigVersion: integer("provider_config_version").notNull(),
@@ -363,6 +424,9 @@ export const codexThreads = pgTable(
 
 export const codexTurns = pgTable("codex_turns", {
   id: text("id").primaryKey(),
+  taskMessageId: text("task_message_id").references(() => taskMessages.id, {
+    onDelete: "restrict",
+  }),
   codexThreadId: text("codex_thread_id")
     .notNull()
     .references(() => codexThreads.id, { onDelete: "cascade" }),
@@ -442,6 +506,7 @@ export const pullRequests = pgTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull().default(1),
     githubRepositoryId: bigint("github_repository_id", { mode: "number" }),
     number: integer("number"),
     branchName: text("branch_name").notNull(),
@@ -454,7 +519,15 @@ export const pullRequests = pgTable(
     idempotencyKey: text("idempotency_key").notNull(),
     ...timestamps,
   },
-  (table) => [uniqueIndex("pull_requests_task_unique").on(table.taskId)],
+  (table) => [
+    uniqueIndex("pull_requests_task_generation_unique").on(
+      table.taskId,
+      table.generation,
+    ),
+    uniqueIndex("pull_requests_task_open_unique")
+      .on(table.taskId)
+      .where(sql`${table.state} = 'open'`),
+  ],
 );
 
 export const skills = pgTable("skills", {
@@ -469,6 +542,7 @@ export const skills = pgTable("skills", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   visibility: text("visibility").notNull().default("private"),
+  summary: text("summary").notNull().default(""),
   disabledAt: utc("disabled_at"),
   ...timestamps,
 });

@@ -1,56 +1,83 @@
-import { requireIdentity } from "@/lib/auth";
+import { currentIdentity } from "@/lib/auth";
 import {
-  Archive,
-  Blocks,
-  BookOpen,
-  Boxes,
+  Gauge,
+  BookText,
+  ScrollText,
+  Code2,
   ChevronsUpDown,
-  CircleGauge,
+  LayoutDashboard,
   FolderGit2,
-  GitPullRequestArrow,
-  MemoryStick,
-  Search,
-  Settings,
+  Plug,
   ShieldCheck,
-  Sparkles,
+  History,
 } from "lucide-react";
 import Link from "next/link";
+import { CodexLimitNotice } from "./codex-limit-notice";
+import { displayInitials } from "@/lib/display-initials";
+import styles from "./sidebar.module.css";
+import { ProfileMenu } from "./profile-menu";
+import { signOut } from "@/auth";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { googleAuthConfigured } from "@/lib/google-auth-policy";
+import { PostHogIdentity } from "./posthog-identity";
 
 const primaryLinks = [
-  { href: "/", label: "Mission control", icon: CircleGauge },
-  { href: "/tasks", label: "Agent runs", icon: Sparkles },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/tasks", label: "History", icon: History },
   { href: "/repositories", label: "Repositories", icon: FolderGit2 },
-  { href: "/integrations", label: "Connections", icon: Blocks },
 ] as const;
 
 const systemLinks = [
-  { href: "/skills", label: "Skills", icon: BookOpen },
-  { href: "/memory", label: "Memory", icon: MemoryStick },
-  { href: "/usage", label: "Usage", icon: Archive },
+  { href: "/skills", label: "Skills", icon: BookText },
+  { href: "/usage", label: "Usage", icon: Gauge },
   { href: "/audit", label: "Audit log", icon: ShieldCheck },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/settings", label: "Connections", icon: Plug },
+  { href: "/instructions", label: "Instructions", icon: ScrollText },
 ] as const;
 
 export default async function ProductLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const identity = await requireIdentity();
-  const isLiveCodex = process.env.NIMBUS_CODING_PROVIDER === "codex";
-  const initials = identity.userName
-    .split(" ")
-    .map((word) => word[0])
-    .join("")
-    .slice(0, 2);
+  const identity = await currentIdentity();
+  if (!identity) return <>{children}</>;
+  const initials = displayInitials(identity.userName);
 
   return (
     <div className="app-shell">
+      <PostHogIdentity
+        userId={identity.userId}
+        organizationId={identity.organizationId}
+        authProvider={identity.authProvider}
+      />
       <aside className="app-sidebar">
-        <Link className="app-logo" href="/" aria-label="Nimbus mission control">
+        <Link className="app-logo" href="/" aria-label="Nimbus dashboard">
           <span className="logo-glyph">
-            <Boxes size={17} strokeWidth={2.2} />
+            <svg
+              className="logo-cloud-mark"
+              viewBox="0 0 24 24"
+              width="24"
+              height="24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M20.5 17.5H5.8a4.3 4.3 0 0 1-.72-8.54A6.8 6.8 0 0 1 18.3 9.7a4.1 4.1 0 0 1 2.2 7.8Z"
+                stroke="currentColor"
+                strokeWidth="2.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <Code2
+              className="logo-code-mark"
+              size={8}
+              strokeWidth={2.1}
+              aria-hidden="true"
+            />
           </span>
           <span>Nimbus</span>
-          <span className="logo-version">2.0</span>
         </Link>
 
         <button
@@ -58,7 +85,9 @@ export default async function ProductLayout({
           type="button"
           aria-label="Switch organization"
         >
-          <span className="org-avatar">NL</span>
+          <span className="org-avatar">
+            {displayInitials(identity.organizationName)}
+          </span>
           <span>
             <small>Workspace</small>
             <strong>{identity.organizationName}</strong>
@@ -66,70 +95,44 @@ export default async function ProductLayout({
           <ChevronsUpDown size={14} />
         </button>
 
-        <nav className="sidebar-nav" aria-label="Workspace">
+        <nav
+          className={`sidebar-nav ${styles.navigation}`}
+          aria-label="Workspace"
+        >
           <p className="nav-label">Workspace</p>
           {primaryLinks.map(({ href, label, icon: Icon }) => (
-            <Link href={href} key={href}>
+            <Link href={href} key={href} aria-label={label}>
               <Icon size={16} />
               <span>{label}</span>
             </Link>
           ))}
           <p className="nav-label nav-label-spaced">Configure</p>
           {systemLinks.map(({ href, label, icon: Icon }) => (
-            <Link href={href} key={href}>
+            <Link href={href} key={href} aria-label={label}>
               <Icon size={16} />
               <span>{label}</span>
             </Link>
           ))}
         </nav>
 
-        <div className="engine-card">
-          <div className="engine-line">
-            <span className={isLiveCodex ? "live-dot" : "test-dot"} />
-            {isLiveCodex ? "Codex app-server" : "Test provider"}
-          </div>
-          <p>
-            {isLiveCodex
-              ? "Agent runtime ready"
-              : "Deterministic local simulation"}
-          </p>
-          <div className="engine-meta">
-            <span>{isLiveCodex ? "live OAuth" : "local only"}</span>
-            <span>{isLiveCodex ? "isolated" : "not live"}</span>
-          </div>
-        </div>
+        <div className="sidebar-footer">
+          <CodexLimitNotice />
 
-        <div className="profile-row">
-          <span className="profile-avatar">{initials}</span>
-          <span>
-            <strong>{identity.userName}</strong>
-            <small>{identity.email}</small>
-          </span>
-          <Settings size={15} />
+          <ProfileMenu
+            initials={initials}
+            name={identity.userName}
+            email={identity.email}
+            signOutAction={async () => {
+              "use server";
+              (await cookies()).delete(SESSION_COOKIE);
+              if (googleAuthConfigured()) await signOut({ redirectTo: "/" });
+              redirect("/");
+            }}
+          />
         </div>
       </aside>
 
-      <div className="app-frame">
-        <header className="app-topbar">
-          <div className="command-search">
-            <Search size={15} />
-            <span>Search tasks, repositories, and files</span>
-            <kbd>⌘ K</kbd>
-          </div>
-          <div className="topbar-actions">
-            <span className="environment-pill">
-              <span className="live-dot" /> Local environment
-            </span>
-            <Link className="topbar-pr" href="/tasks">
-              <GitPullRequestArrow size={16} /> Pull requests
-            </Link>
-            <Link className="new-run-button" href="/tasks/new">
-              New agent run
-            </Link>
-          </div>
-        </header>
-        {children}
-      </div>
+      <div className="app-frame">{children}</div>
     </div>
   );
 }

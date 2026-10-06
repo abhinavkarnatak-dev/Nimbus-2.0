@@ -1,0 +1,165 @@
+.actions {
+  flex-wrap: wrap;
+}
+.actions button.merge {
+  background: #8250df;
+  color: #fff;
+}
+.statusOpen:global(.pr-state-line) {
+  color: #1a7f37;
+  border-color: #b4dfc1;
+  background: #f0faf3;
+}
+.statusMerged:global(.pr-state-line) {
+  color: #8250df;
+  border-color: #d8c6f5;
+  background: #f7f2ff;
+}
+.statusClosed:global(.pr-state-line) {
+  color: #cf222e;
+  border-color: #f3b9be;
+  background: #fff1f2;
+}
+.statusOpen:global(.pr-state-line) p,
+.statusMerged:global(.pr-state-line) p,
+.statusClosed:global(.pr-state-line) p {
+  color: inherit;
+  opacity: 0.8;
+}
+.actions p.mergedResult,
+.title.mergedResult {
+  color: #8250df;
+}
+.actions p.closedResult,
+.title.closedResult {
+  color: #cf222e;
+}
+.actions button.danger {
+  background: #dc3545;
+  color: #fff;
+  border: 1px solid #dc3545;
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgb(15 23 42 / 42%);
+  backdrop-filter: blur(3px);
+}
+.modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1001;
+  width: min(460px, calc(100vw - 32px));
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 20px 70px rgb(15 23 42 / 20%);
+}
+.title {
+  padding-right: 24px;
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.description {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.dismiss {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.footer button {
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.footer .cancel {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink);
+}
+.confirmDanger {
+  background: #dc3545;
+  color: #fff;
+}
+.confirmMerge {
+  background: #8250df;
+  color: #fff;
+}
+.footer button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.error {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff0f1;
+  color: #b42332;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+:global(.app-shell) .modal {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.modal {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.footer .cancel {
+  background: var(--panel-subtle);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.error {
+  background: var(--red-soft);
+  color: #ffabb0;
+}
+
+.modal {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+.footer .cancel {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+.error {
+  background: #fff0f1;
+  color: #b42332;
+}

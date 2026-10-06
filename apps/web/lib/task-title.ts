@@ -1,24 +1,37 @@
-const PREFIXES =
-  /^(?:please\s+|could you\s+|can you\s+|i need you to\s+|i want you to\s+|help me\s+|we need to\s+)/i;
-
-export function deriveTaskTitle(objective: string, maxLength = 80): string {
-  const normalized = objective
-    .replace(/[`*_#>]/g, "")
-    .replace(/^[-+\d.)\s]+/, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(PREFIXES, "");
-  const firstThought = normalized.split(/(?:[.!?]\s|\n)/, 1)[0]?.trim() ?? "";
-  const withoutPunctuation = firstThought.replace(/[.,;:!?-]+$/g, "").trim();
-  const candidate = withoutPunctuation || "New coding task";
-
-  if (candidate.length <= maxLength) return capitalize(candidate);
-
-  const boundary = candidate.lastIndexOf(" ", maxLength - 1);
-  const shortened = candidate.slice(0, boundary > 24 ? boundary : maxLength);
-  return capitalize(shortened.trimEnd());
-}
-
-function capitalize(value: string): string {
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+export function deriveTaskTitle(
+  objective: string,
+  mode: "repository" | "chat" = "repository",
+): string {
+  const file = objective.match(
+    /\b[\w.-]+\.(?:tsx?|jsx?|py|cpp|java|go|rs|md|json|css|html|sql)\b/i,
+  )?.[0];
+  const intent = file ? objective.replace(file, "") : objective;
+  const action = /\b(fix|bug|broken|error|failure|failures|recovery)\b/i.test(
+    intent,
+  )
+    ? "Fix"
+    : /\b(add|create|build|implement)\b/i.test(intent)
+      ? "Implement"
+      : /\b(change|update|modify|refactor|rename|remove|delete)\b/i.test(intent)
+        ? "Update"
+        : "Explore";
+  if (file) return `${action === "Explore" ? "Inspect" : action} ${file}`;
+  const topics: Array<[RegExp, string]> = [
+    [/\b(stream|events?|reconnect)\b/i, "event streaming"],
+    [/\b(auth|login|sign.?in|oauth)\b/i, "authentication"],
+    [/\b(deploy|deployment|workers?|executor)\b/i, "deployment reliability"],
+    [/\b(tests?|testing)\b/i, "tests"],
+    [/\b(ui|layout|styles?|design|spacing)\b/i, "interface"],
+    [/\b(database|schema|migration)\b/i, "database"],
+  ];
+  const topic = topics.find(([pattern]) => pattern.test(objective))?.[1];
+  return topic
+    ? `${action} ${topic}`
+    : action === "Explore"
+      ? mode === "chat"
+        ? "General conversation"
+        : "Repository overview"
+      : mode === "chat"
+        ? `${action} request`
+        : `${action} repository code`;
 }

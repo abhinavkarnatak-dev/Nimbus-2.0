@@ -1,12 +1,18 @@
-import { db, eq, repositories } from "@nimbus/database";
+import { listAvailableRepositories } from "@/lib/available-repositories";
+import { RepositorySync } from "../repository-sync";
 import { requireIdentity } from "@/lib/auth";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Repositories",
+  description:
+    "Manage authorized repositories available to Nimbus coding tasks.",
+};
+export const dynamic = "force-dynamic";
 
 export default async function RepositoriesPage() {
   const identity = await requireIdentity();
-  const rows = await db()
-    .select()
-    .from(repositories)
-    .where(eq(repositories.organizationId, identity.organizationId));
+  const rows = await listAvailableRepositories(identity.organizationId);
   return (
     <main className="page">
       <div className="page-head">
@@ -18,6 +24,7 @@ export default async function RepositoriesPage() {
             for every task.
           </p>
         </div>
+        <RepositorySync manual />
       </div>
       <section className="card">
         <table className="table">

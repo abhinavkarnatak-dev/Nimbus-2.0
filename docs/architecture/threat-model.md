@@ -11,7 +11,6 @@ Nimbus separates the browser, control plane, execution plane, task workspace, ex
 - GitHub installation credentials
 - Tenant membership and repository authorization
 - Task workspaces, artifacts, memories, and skill packages
-- Slack, Gmail, Notion, and Twilio connection grants
 - Audit, usage, and pull request records
 
 ## Principal threats and controls
@@ -32,7 +31,6 @@ Nimbus separates the browser, control plane, execution plane, task workspace, ex
 | Unauthorized PR action             | Browser or agent to GitHub                 | Recheck installation, repository, task, and actor authorization. Make push and PR creation idempotent. Require explicit merge and close action by default.                         |
 | Log or analytics leakage           | Services to PostHog or runtime logs        | Use an allowlist of aggregate metadata. Exclude prompts, source, diffs, output, content, credentials, headers, environment values, and direct contact data.                        |
 | Supply-chain compromise            | Dependencies and CI                        | Pin lockfiles, review updates, audit dependencies, verify build provenance where available, scan secrets, and protect release workflows.                                           |
-| External channel disclosure        | Nimbus to Slack, Gmail, Notion, Twilio     | Link identities, authorize channel and resource scope, minimize content, require email send confirmation and phone opt-in, and audit side effects.                                 |
 
 ## Abuse resistance
 
@@ -40,4 +38,4 @@ Rate limits and quotas apply per user, organization, repository, and integration
 
 ## Security verification
 
-Required release tests cover tenant isolation, path and archive traversal, webhook replay, OAuth callback binding, token refresh locking, secret redaction, integration permissions, Twilio opt-in, and idempotent GitHub delivery. Live penetration testing and sandbox escape review remain deployment gates.
+Required release tests cover tenant isolation, path and archive traversal, webhook replay, OAuth callback binding, token refresh locking, secret redaction, repository permissions, and idempotent GitHub delivery. Live penetration testing and sandbox escape review remain deployment gates. Product connections are restricted to GitHub and Codex; Slack, Gmail, Notion, and Twilio are outside scope.

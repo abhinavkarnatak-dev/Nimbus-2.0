@@ -1,0 +1,134 @@
+.body {
+  padding: 16px 17px;
+  min-width: 0;
+}
+
+:global(.app-shell) .list article {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.list article {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.list article {
+  background: #fff;
+  border-color: #e5e1ee;
+  color: inherit;
+}
+.state {
+  margin: 0 0 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: var(--red);
+}
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.spinner {
+  flex-shrink: 0;
+  color: var(--accent);
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+.list {
+  display: grid;
+  gap: 12px;
+}
+.list article {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e5e1ee;
+  border-radius: 10px;
+  min-width: 0;
+}
+.list article > svg {
+  color: #8766d7;
+  flex-shrink: 0;
+}
+.list article > div {
+  flex: 1;
+  min-width: 0;
+}
+.list strong,
+.list small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.list strong {
+  font-size: 14px;
+}
+.fileTitle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 6px;
+}
+.fileSize {
+  font-size: 12px;
+  color: #7b7f8c;
+  white-space: nowrap;
+}
+.list small {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #7b7f8c;
+}
+.list button {
+  cursor: pointer;
+  border: 1px solid #e4e1ed;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border-radius: 7px;
+  background: #ede6fc;
+  color: #6d42c8;
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.list button:hover {
+  background: #e0d4fa;
+}
+.list button:focus-visible {
+  outline: 2px solid #9479e5;
+  outline-offset: 2px;
+}
+.list .selected {
+  border-color: #b49ce9;
+  background: #faf8ff;
+}
+@media (max-width: 640px) {
+  .list article {
+    flex-wrap: wrap;
+  }
+  .list button {
+    margin-left: 34px;
+  }
+}

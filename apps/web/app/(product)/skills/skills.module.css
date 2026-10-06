@@ -1,0 +1,203 @@
+.addMenu {
+  position: relative;
+}
+.addMenuItems {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 160px;
+  padding: 5px;
+  border: 1px solid #ded7ef;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 5px 20px #30204920;
+}
+.addMenuItems button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #514864;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.addMenuItems button:hover,
+.addMenuItems button:focus-visible {
+  background: #f1edf9;
+}
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgb(15 23 42 / 42%);
+}
+.modalLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.editor {
+  width: min(680px, 100%);
+  max-height: min(800px, calc(100vh - 40px));
+  overflow-y: auto;
+  padding: 22px;
+  margin: 0;
+  box-shadow: 0 16px 45px rgb(31 24 54 / 22%);
+}
+.deleteModal {
+  width: min(440px, 100%);
+  padding: 22px;
+}
+.deleteModal p {
+  margin: 16px 0;
+  color: #625b6d;
+  line-height: 1.55;
+}
+.danger {
+  border-color: #e6b5b5 !important;
+  background: #c34b4b !important;
+  color: #fff !important;
+}
+.deleteIcon {
+  color: #c34b4b;
+}
+.editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+.editorHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.editorHeading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.editor label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  color: #514864;
+}
+.editor input:not([type="file"]),
+.editor textarea {
+  width: 100%;
+  border: 1px solid #ded9ea;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  font: inherit;
+  resize: vertical;
+}
+.editor input:focus,
+.editor textarea:focus {
+  outline: 2px solid #c4b5f4;
+  outline-offset: 1px;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.skillName {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.list {
+  overflow-x: auto;
+}
+.list td {
+  overflow-wrap: anywhere;
+}
+.error {
+  color: #b74141;
+}
+.notice {
+  color: #7053b2;
+  font-size: 13px;
+}
+
+:global(.app-shell) .addMenuItems,
+:global(.app-shell) .editor,
+:global(.app-shell) .deleteModal {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+:global(.app-shell) .addMenuItems button,
+:global(.app-shell) .editor input:not([type="file"]),
+:global(.app-shell) .editor textarea {
+  background: var(--panel-subtle);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+:global(.app-shell) .addMenuItems button:hover,
+:global(.app-shell) .addMenuItems button:focus-visible {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+.addMenuItems,
+.editor,
+.deleteModal {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.addMenuItems button,
+.editor input:not([type="file"]),
+.editor textarea {
+  background: var(--panel-subtle);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.addMenuItems button:hover,
+.addMenuItems button:focus-visible {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.editor label,
+.deleteModal p {
+  color: var(--muted);
+}
+
+.addMenuItems,
+.editor,
+.deleteModal {
+  background: #fff;
+  color: inherit;
+  border-color: #ded7ef;
+}
+.addMenuItems button,
+.editor input:not([type="file"]),
+.editor textarea {
+  background: #fff;
+  color: #514864;
+  border-color: #ded9ea;
+}
+.addMenuItems button:hover,
+.addMenuItems button:focus-visible {
+  background: #f1edf9;
+  color: #514864;
+}
+.editor label,
+.deleteModal p {
+  color: #514864;
+}

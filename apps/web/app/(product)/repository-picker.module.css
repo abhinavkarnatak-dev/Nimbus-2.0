@@ -1,0 +1,8 @@
+.options {
+  max-height: min(280px, 35dvh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #655877 #1c1b23;
+}

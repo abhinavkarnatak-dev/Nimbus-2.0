@@ -27,4 +27,17 @@ export async function closeDatabase(): Promise<void> {
 }
 
 export * from "./schema.js";
+export { persistGeneratedTaskTitle } from "./session-title.js";
+export { readAgentInstructions } from "./agent-instructions.js";
+export {
+  listChatSkills,
+  resolveChatSkills,
+  ownedSkillScope,
+} from "./chat-skills.js";
+export {
+  activeRequestId,
+  stopRequest,
+  requestWasStopped,
+  finishStoppedRequest,
+} from "./request-stop.js";
 export { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";

@@ -1,17 +1,25 @@
 import { requireIdentity } from "@/lib/auth";
 import { getTaskDetail } from "@/lib/task-data";
+import { activityEvents } from "@/lib/conversation-events";
+import { ChangesWorkbench } from "./changes-workbench";
+import prPanelStyles from "./pull-request-panel.module.css";
 import { LiveAgentWorkspace } from "./live-agent-workspace";
+import styles from "./conversation.module.css";
+import { FilesWorkbench } from "./files-workbench";
+import { ArtifactsWorkbench } from "./artifacts-workbench";
+import { fileReferenceTarget } from "@/lib/chat-links";
+import { isArtifactReference } from "@/lib/artifact-policy";
+import { checkPresentation } from "@/lib/check-presentation";
+import { sessionPresentation } from "@/lib/session-presentation";
 import {
   AlertTriangle,
   Archive,
   Bot,
   Check,
   CheckCircle2,
-  ChevronDown,
   CircleDot,
   ClipboardCheck,
   Clock3,
-  Code2,
   ExternalLink,
   FileCode2,
   Files,
@@ -19,27 +27,32 @@ import {
   GitCommitHorizontal,
   GitPullRequest,
   History,
-  ListChecks,
-  MoreHorizontal,
   Play,
-  RefreshCw,
-  ServerCog,
   SquareTerminal,
   Wrench,
 } from "lucide-react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { PullRequestActions } from "./pull-request-actions";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Task workspace",
+  description:
+    "Inspect a Nimbus task conversation, activity trail, changes, files, artifacts, and pull request status.",
+};
+import prStyles from "./pull-request-actions.module.css";
+import { notFound, redirect } from "next/navigation";
+import { EditTaskTitle } from "../edit-task-title";
+import { PanelHeader } from "./workbench-panel-header";
 
 const tabs = [
   { id: "process", label: "Activity", icon: History },
-  { id: "plan", label: "Plan", icon: ListChecks },
   { id: "files", label: "Files", icon: Files },
   { id: "changes", label: "Changes", icon: FileCode2 },
   { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "checks", label: "Checks", icon: ClipboardCheck },
   { id: "pull-request", label: "Pull request", icon: GitPullRequest },
   { id: "artifacts", label: "Artifacts", icon: Archive },
-  { id: "logs", label: "Runtime", icon: ServerCog },
 ] as const;
 
 type Tab = (typeof tabs)[number]["id"];
@@ -50,47 +63,43 @@ export default async function TaskPage({
   searchParams,
 }: {
   params: Promise<{ taskId: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    file?: string;
+    line?: string;
+    revision?: string;
+    historyFile?: string;
+    artifactFile?: string;
+  }>;
 }) {
   const identity = await requireIdentity();
   const { taskId } = await params;
   const data = await getTaskDetail(identity.organizationId, taskId);
   if (!data) notFound();
-  const requested = (await searchParams).tab;
+  const query = await searchParams;
+  const requested = query.tab;
+  if (requested === "files" && query.file && isArtifactReference(query.file))
+    redirect(`/tasks/${taskId}?${fileReferenceTarget(query.file)}`);
   const tab: Tab = tabs.some((item) => item.id === requested)
     ? (requested as Tab)
     : "process";
   const latestEvent = data.events.at(-1);
+  const session = sessionPresentation(data.task.status, data.task.archivedAt);
 
   return (
     <main className="agent-page">
       <header className="agent-header">
         <div className="agent-breadcrumb">
-          <Link href="/tasks">Agent runs</Link>
+          <Link href="/tasks">History</Link>
           <span>/</span>
-          <span>{data.task.repository}</span>
+          <span>{data.task.repository ?? "General chat"}</span>
           <span>/</span>
           <strong>{data.task.title}</strong>
         </div>
         <div className="agent-header-actions">
-          <span className={`state-chip state-${data.task.status}`}>
-            <span className="live-dot" />{" "}
-            {data.task.status.replaceAll("_", " ")}
+          <span className={`state-chip state-${session.state}`}>
+            <span className="live-dot" /> {session.label}
           </span>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Refresh task"
-          >
-            <RefreshCw size={15} />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="More task actions"
-          >
-            <MoreHorizontal size={17} />
-          </button>
         </div>
       </header>
 
@@ -100,21 +109,34 @@ export default async function TaskPage({
             <Bot size={19} />
           </span>
           <div>
-            <h1>{data.task.title}</h1>
-            <p>{latestEvent?.title ?? "Task accepted"}</p>
+            <EditTaskTitle
+              key={data.task.title}
+              taskId={taskId}
+              title={data.task.title}
+              heading
+            />
+            <p>
+              {session.state === "idle"
+                ? "Ready for your next request"
+                : (latestEvent?.title ?? "Task accepted")}
+            </p>
           </div>
         </div>
         <div className="agent-facts">
-          <span>
-            <GitBranch size={14} />
-            <small>Repository</small>
-            <strong>{data.task.repository}</strong>
-          </span>
-          <span>
-            <GitCommitHorizontal size={14} />
-            <small>Branch</small>
-            <strong>{data.task.branchName ?? data.task.baseRef}</strong>
-          </span>
+          {data.task.repository && (
+            <span>
+              <GitBranch size={14} />
+              <small>Repository</small>
+              <strong>{data.task.repository}</strong>
+            </span>
+          )}
+          {data.task.repository && (
+            <span>
+              <GitCommitHorizontal size={14} />
+              <small>Branch</small>
+              <strong>{data.task.branchName ?? data.task.baseRef}</strong>
+            </span>
+          )}
           <span>
             <Clock3 size={14} />
             <small>Last activity</small>
@@ -135,46 +157,91 @@ export default async function TaskPage({
         objective={data.task.objective}
         model={data.task.requestedModel ?? data.thread?.model ?? "Codex"}
         initialStatus={data.task.status}
+        initialRequestId={data.activeRequestId}
+        initialSkillIds={data.task.selectedSkillIds}
+        archivedAt={data.task.archivedAt}
         initialEvents={data.events}
         workbench={
-          <section className="workbench-pane">
-            <nav className="workbench-tabs" aria-label="Task workspace">
-              {tabs.map(({ id, label, icon: Icon }) => (
-                <Link
-                  className={tab === id ? "active" : ""}
-                  href={`/tasks/${taskId}?tab=${id}`}
-                  key={id}
-                >
-                  <Icon size={14} />
-                  {label}
-                </Link>
-              ))}
-            </nav>
-            <div className="workbench-body">
-              <TaskPanel tab={tab} data={data} />
-            </div>
-          </section>
+          data.task.repository ? (
+            <section className="workbench-pane">
+              <nav className="workbench-tabs" aria-label="Task workspace">
+                {tabs.map(({ id, label, icon: Icon }) => (
+                  <Link
+                    className={tab === id ? "active" : ""}
+                    href={`/tasks/${taskId}?tab=${id}`}
+                    key={id}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </Link>
+                ))}
+              </nav>
+              <div className="workbench-body">
+                {tab === "files" ? (
+                  <FilesWorkbench
+                    taskId={taskId}
+                    path={query.file}
+                    line={
+                      query.line && /^\d+$/.test(query.line)
+                        ? Number(query.line)
+                        : undefined
+                    }
+                    revision={query.revision}
+                    historyPath={query.historyFile}
+                  />
+                ) : (
+                  <TaskPanel
+                    tab={tab}
+                    data={data}
+                    artifactFile={query.artifactFile}
+                  />
+                )}
+              </div>
+            </section>
+          ) : null
         }
       />
     </main>
   );
 }
 
-function TaskPanel({ tab, data }: { tab: Tab; data: Detail }) {
+function TaskPanel({
+  tab,
+  data,
+  artifactFile,
+}: {
+  tab: Tab;
+  data: Detail;
+  artifactFile?: string | undefined;
+}) {
   if (tab === "process") return <ActivityPanel data={data} />;
-  if (tab === "plan") return <PlanPanel data={data} />;
-  if (tab === "files" || tab === "changes")
-    return <ChangesPanel data={data} filesOnly={tab === "files"} />;
+  if (tab === "changes")
+    return (
+      <ChangesWorkbench
+        taskId={data.task.id}
+        refreshKey={data.events.at(-1)?.sequence ?? 0}
+      />
+    );
   if (tab === "terminal") return <TerminalPanel data={data} />;
   if (tab === "checks") return <ChecksPanel data={data} />;
   if (tab === "pull-request") return <PullRequestPanel data={data} />;
-  if (tab === "artifacts") return <ArtifactsPanel data={data} />;
-  return <RuntimePanel data={data} />;
+  if (tab === "artifacts")
+    return (
+      <ArtifactsWorkbench
+        key={`${artifactFile ?? ""}:${data.artifacts.map((artifact) => artifact.id).join(",")}`}
+        taskId={data.task.id}
+        requestedPath={artifactFile}
+        initialArtifacts={data.artifacts}
+      />
+    );
+  return <ActivityPanel data={data} />;
 }
 
 function ActivityPanel({ data }: { data: Detail }) {
-  const completed = data.events.filter(
-    (event) => event.status === "succeeded",
+  const events = activityEvents(data.events);
+  const completed = events.filter(
+    (event) =>
+      event.status === "succeeded" && event.category !== "agent_message",
   ).length;
   return (
     <div className="workspace-panel">
@@ -191,11 +258,13 @@ function ActivityPanel({ data }: { data: Detail }) {
       <div className="activity-overview">
         <div>
           <small>Current state</small>
-          <strong>{data.task.status.replaceAll("_", " ")}</strong>
+          <strong>
+            {sessionPresentation(data.task.status, data.task.archivedAt).label}
+          </strong>
         </div>
         <div>
           <small>Confirmed events</small>
-          <strong>{data.events.length}</strong>
+          <strong>{events.length}</strong>
         </div>
         <div>
           <small>Successful actions</small>
@@ -207,7 +276,7 @@ function ActivityPanel({ data }: { data: Detail }) {
         </div>
       </div>
       <div className="activity-feed">
-        {data.events.map((event, index) => (
+        {events.map((event, index) => (
           <article className="activity-item" key={event.id}>
             <div className="activity-rail">
               <span className={`activity-icon ${event.status}`}>
@@ -215,139 +284,62 @@ function ActivityPanel({ data }: { data: Detail }) {
                   <Wrench size={13} />
                 ) : event.status === "failed" ? (
                   <AlertTriangle size={13} />
-                ) : (
+                ) : event.status === "succeeded" &&
+                  event.category !== "agent_message" ? (
                   <Check size={13} />
+                ) : event.category === "agent_message" ? (
+                  <Bot size={13} />
+                ) : (
+                  <CircleDot size={13} />
                 )}
               </span>
-              {index < data.events.length - 1 && <i />}
+              {index < events.length - 1 && <i />}
             </div>
             <div className="activity-content">
-              <header>
-                <div>
-                  <strong>{event.title}</strong>
-                  <span className="activity-phase">{event.phase}</span>
-                </div>
-                <time>
-                  {new Date(event.timestamp).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit",
-                  })}
-                </time>
-              </header>
-              <p>{event.whatWasDone}</p>
-              <div className="activity-rationale">
-                <CircleDot size={12} />
-                <span>{event.whyItWasDone}</span>
-              </div>
-              {event.verification && (
-                <div className="verification-line">
-                  <CheckCircle2 size={13} />
-                  <span>{event.verification}</span>
-                </div>
-              )}
+              <details className={styles.activityDetails}>
+                <summary>
+                  <header>
+                    <div>
+                      <strong>{event.title}</strong>
+                      {event.category !== "agent_message" && (
+                        <span className="activity-phase">
+                          {event.status === "succeeded"
+                            ? "Finished"
+                            : event.status}
+                        </span>
+                      )}
+                    </div>
+                    <time>
+                      {new Date(event.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </time>
+                  </header>
+                </summary>
+                {event.category === "tool" ? (
+                  <pre>{event.whatWasDone}</pre>
+                ) : (
+                  <p>{event.whatWasDone}</p>
+                )}
+                {event.whyItWasDone && (
+                  <div className="activity-rationale">
+                    <CircleDot size={12} />
+                    <span>{event.whyItWasDone}</span>
+                  </div>
+                )}
+                {event.verification && (
+                  <div className="verification-line">
+                    <CheckCircle2 size={13} />
+                    <span>{event.verification}</span>
+                  </div>
+                )}
+              </details>
             </div>
           </article>
         ))}
       </div>
-    </div>
-  );
-}
-
-function PlanPanel({ data }: { data: Detail }) {
-  if (!data.plan)
-    return (
-      <EmptyPanel
-        icon={ListChecks}
-        title="No formal plan yet"
-        text="Codex creates and revises a plan when the task benefits from one. Small tasks can proceed without ceremony."
-      />
-    );
-  const items = data.plan.items as Array<{
-    id: string;
-    title: string;
-    status: string;
-  }>;
-  return (
-    <div className="workspace-panel">
-      <PanelHeader
-        eyebrow={`Revision ${data.plan.revision}`}
-        title={data.plan.objective}
-        detail={data.plan.changeReason}
-      />
-      <div className="plan-layout">
-        <div className="plan-items">
-          {items.map((item, index) => (
-            <div className="plan-row" key={item.id}>
-              <span className={`plan-index ${item.status}`}>
-                {item.status === "completed" ? <Check size={13} /> : index + 1}
-              </span>
-              <div>
-                <strong>{item.title}</strong>
-                <small>{item.status}</small>
-              </div>
-            </div>
-          ))}
-        </div>
-        <aside className="plan-context">
-          <h3>Confirmed facts</h3>
-          <ul>
-            {(data.plan.confirmedFacts as string[]).map((fact) => (
-              <li key={fact}>{fact}</li>
-            ))}
-          </ul>
-          <h3>Risks</h3>
-          <ul>
-            {(data.plan.risks as string[]).map((risk) => (
-              <li key={risk}>{risk}</li>
-            ))}
-          </ul>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function ChangesPanel({
-  data,
-  filesOnly,
-}: {
-  data: Detail;
-  filesOnly: boolean;
-}) {
-  return (
-    <div className="workspace-panel">
-      <PanelHeader
-        eyebrow="Workspace changes"
-        title={filesOnly ? "Changed files" : "Review changes"}
-        detail="Recorded from the isolated task workspace and tied to durable file-change evidence."
-        action={
-          <span className="diff-summary">
-            <b>+{data.files.reduce((sum, file) => sum + file.additions, 0)}</b>
-            <i>-{data.files.reduce((sum, file) => sum + file.deletions, 0)}</i>
-          </span>
-        }
-      />
-      {data.files.length === 0 ? (
-        <EmptyState text="No file changes have been recorded yet." />
-      ) : (
-        <div className="file-list">
-          {data.files.map((file) => (
-            <div className="file-row" key={file.id}>
-              <span className={`file-status ${file.status}`}>
-                {file.status.slice(0, 1).toUpperCase()}
-              </span>
-              <Code2 size={15} />
-              <strong>{file.path}</strong>
-              <span className="diff-count">
-                <b>+{file.additions}</b>
-                <i>-{file.deletions}</i>
-              </span>
-              <ChevronDown size={15} />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -404,30 +396,38 @@ function ChecksPanel({ data }: { data: Detail }) {
         {data.commands.length === 0 ? (
           <EmptyState text="No checks have been recorded yet." />
         ) : (
-          data.commands.map((command) => (
-            <div className="check-row" key={command.id}>
-              <span className={`check-icon ${command.status}`}>
-                {command.status === "succeeded" ? (
-                  <Check size={14} />
-                ) : (
-                  <AlertTriangle size={14} />
-                )}
-              </span>
-              <div>
-                <strong>{command.command}</strong>
-                <small>{command.workingDirectory}</small>
+          data.commands.map((command) => {
+            const presentation = checkPresentation(
+              command.status,
+              command.exitCode,
+            );
+            return (
+              <div className="check-row" key={command.id}>
+                <span className={`check-icon ${presentation.state}`}>
+                  {presentation.passed ? (
+                    <Check size={14} />
+                  ) : presentation.failed ? (
+                    <AlertTriangle size={14} />
+                  ) : (
+                    <Clock3 size={14} />
+                  )}
+                </span>
+                <div>
+                  <strong>{command.command}</strong>
+                  <small>{command.workingDirectory}</small>
+                </div>
+                <span className="check-duration">
+                  {command.durationMs ?? 0}ms
+                </span>
+                <span className={`state-chip state-${presentation.state}`}>
+                  {presentation.label}
+                </span>
+                <span className="exit-code">
+                  exit {command.exitCode ?? "-"}
+                </span>
               </div>
-              <span className="check-duration">
-                {command.durationMs ?? 0}ms
-              </span>
-              <span
-                className={`state-chip state-${command.status === "succeeded" ? "completed" : "failed"}`}
-              >
-                {command.status}
-              </span>
-              <span className="exit-code">exit {command.exitCode ?? "-"}</span>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -440,153 +440,132 @@ function PullRequestPanel({ data }: { data: Detail }) {
     return (
       <EmptyPanel
         icon={GitPullRequest}
-        title="Pull request pending"
-        text="Nimbus creates or updates a pull request automatically after the implementation reaches a coherent verified result."
+        title="No pull requests created"
+        text="Pull requests created for this session will appear here."
       />
     );
   return (
-    <div className="workspace-panel">
-      <PanelHeader
-        eyebrow={`${data.task.repository} #${pr.number}`}
-        title={pr.title}
-        detail="Delivery state comes from the trusted GitHub integration boundary."
-        action={
-          <a
-            className="outline-button"
-            href={pr.url ?? "#"}
-            target="_blank"
-            rel="noreferrer"
+    <div className={prPanelStyles.list}>
+      <section
+        className="workspace-panel"
+        aria-label={`Latest pull request #${pr.number}`}
+      >
+        <PanelHeader
+          eyebrow={`${data.task.repository} #${pr.number}`}
+          title={pr.title}
+          detail="Latest pull request in this session"
+          action={
+            <a
+              className="outline-button"
+              href={pr.url ?? "#"}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open on GitHub <ExternalLink size={13} />
+            </a>
+          }
+        />
+        <div className="pr-overview">
+          <div
+            className={`pr-state-line ${pr.state === "merged" ? prStyles.statusMerged : pr.state === "closed" ? prStyles.statusClosed : prStyles.statusOpen}`}
           >
-            Open on GitHub <ExternalLink size={13} />
-          </a>
-        }
-      />
-      <div className="pr-overview">
-        <div className="pr-state-line">
-          <GitPullRequest size={24} />
-          <div>
-            <strong>Pull request {pr.state}</strong>
-            <p>
-              {data.task.branchName} into {data.task.baseRef}
-            </p>
-          </div>
-        </div>
-        <div className="pr-metrics">
-          <span>
-            <small>Checks</small>
-            <strong>
-              {data.commands.every((command) => command.status === "succeeded")
-                ? "Passing"
-                : "Pending"}
-            </strong>
-          </span>
-          <span>
-            <small>Review</small>
-            <strong>{pr.reviewState?.replaceAll("_", " ")}</strong>
-          </span>
-          <span>
-            <small>Mergeability</small>
-            <strong>{pr.mergeable ? "Ready" : "Unknown"}</strong>
-          </span>
-        </div>
-        <div className="pr-actions">
-          <button type="button" disabled>
-            Merge pull request
-          </button>
-          <button type="button" className="secondary" disabled>
-            Close
-          </button>
-          <p>Merge and close always require an explicit user action.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ArtifactsPanel({ data }: { data: Detail }) {
-  return (
-    <div className="workspace-panel">
-      <PanelHeader
-        eyebrow="Preserved outputs"
-        title="Artifacts"
-        detail="Generated outputs are immutable, checksummed, and scoped to this task."
-      />
-      {data.artifacts.length === 0 ? (
-        <EmptyState text="No artifacts have been generated." />
-      ) : (
-        <div className="artifact-grid">
-          {data.artifacts.map((artifact) => (
-            <div className="artifact-card" key={artifact.id}>
-              <Archive size={18} />
-              <div>
-                <strong>{artifact.name}</strong>
-                <small>
-                  {artifact.mimeType} | {artifact.sizeBytes} bytes
-                </small>
-                <code>{artifact.checksum.slice(0, 20)}...</code>
-              </div>
+            <GitPullRequest size={24} />
+            <div>
+              <strong>Pull request {pr.state}</strong>
+              <p>
+                {pr.branchName} into {data.task.baseRef}
+              </p>
             </div>
-          ))}
+          </div>
+          {pr.state === "open" && (
+            <div className="pr-metrics">
+              <span>
+                <small>Checks</small>
+                <strong>
+                  {data.commands.length > 0 &&
+                  data.commands.every(
+                    (command) =>
+                      checkPresentation(command.status, command.exitCode)
+                        .passed,
+                  )
+                    ? "Passing"
+                    : "Pending"}
+                </strong>
+              </span>
+              <span>
+                <small>Review</small>
+                <strong>
+                  {pr.reviewState?.replaceAll("_", " ") ?? "Not reviewed"}
+                </strong>
+              </span>
+              <span>
+                <small>Mergeability</small>
+                <strong>{pr.mergeable ? "Ready" : "Unknown"}</strong>
+              </span>
+            </div>
+          )}
+          {pr.state === "open" && (
+            <PullRequestActions
+              key={`${pr.id}:${pr.headSha}`}
+              taskId={data.task.id}
+              number={pr.number}
+              state={pr.state}
+              headSha={pr.headSha}
+            />
+          )}
         </div>
+      </section>
+      {data.pullRequestHistory.length > 1 && (
+        <section
+          className={prPanelStyles.history}
+          aria-label="Session pull request history"
+        >
+          <header className={prPanelStyles.historyHeading}>
+            <h3>Previous pull requests</h3>
+            <span>{data.pullRequestHistory.length - 1}</span>
+          </header>
+          {data.pullRequestHistory.slice(1).map((previous) => (
+            <article
+              className={prPanelStyles.card}
+              key={previous.id}
+              aria-label={`Previous pull request #${previous.number}`}
+            >
+              <div className={prPanelStyles.cardHeading}>
+                <span className={prPanelStyles.number}>#{previous.number}</span>
+                <span
+                  className={`${prPanelStyles.badge} ${previous.state === "merged" ? prPanelStyles.merged : previous.state === "closed" ? prPanelStyles.closed : prPanelStyles.open}`}
+                >
+                  <GitPullRequest size={13} />
+                  {previous.state}
+                </span>
+              </div>
+              <h4>
+                <a href={previous.url ?? "#"} target="_blank" rel="noreferrer">
+                  {previous.title}
+                </a>
+              </h4>
+              <div className={prPanelStyles.cardFooter}>
+                <p title={`${previous.branchName} into ${data.task.baseRef}`}>
+                  <GitBranch size={13} />
+                  <span>
+                    {previous.branchName} → {data.task.baseRef}
+                  </span>
+                </p>
+                <a
+                  className={prPanelStyles.github}
+                  href={previous.url ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open PR #${previous.number} on GitHub`}
+                >
+                  GitHub <ExternalLink size={13} />
+                </a>
+              </div>
+            </article>
+          ))}
+        </section>
       )}
     </div>
-  );
-}
-
-function RuntimePanel({ data }: { data: Detail }) {
-  const rows = [
-    ["Workspace provider", data.workspace?.provider ?? "pending"],
-    ["Workspace status", data.workspace?.status ?? "pending"],
-    ["Codex model", data.thread?.model ?? "pending"],
-    [
-      "Event sequence",
-      String(
-        data.thread?.lastProcessedEventSequence ??
-          data.events.at(-1)?.sequence ??
-          0,
-      ),
-    ],
-    ["Completion", data.thread?.lastConfirmedCompletionStatus ?? "unconfirmed"],
-  ];
-  return (
-    <div className="workspace-panel">
-      <PanelHeader
-        eyebrow="Redacted diagnostics"
-        title="Runtime"
-        detail="Operational metadata is visible without exposing credentials, prompts, source, or private reasoning."
-      />
-      <div className="runtime-list">
-        {rows.map(([label, value]) => (
-          <div key={label}>
-            <span>{label}</span>
-            <code>{value}</code>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PanelHeader({
-  eyebrow,
-  title,
-  detail,
-  action,
-}: {
-  eyebrow: string;
-  title: string;
-  detail: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <header className="workspace-panel-header">
-      <div>
-        <span>{eyebrow}</span>
-        <h2>{title}</h2>
-        <p>{detail}</p>
-      </div>
-      {action}
-    </header>
   );
 }
 

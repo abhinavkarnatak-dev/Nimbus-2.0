@@ -14,6 +14,7 @@ import {
   asc,
   desc,
   eq,
+  activeRequestId,
 } from "@nimbus/database";
 
 export async function listTasks(organizationId: string) {
@@ -24,12 +25,13 @@ export async function listTasks(organizationId: string) {
       objective: tasks.objective,
       requestedModel: tasks.requestedModel,
       status: tasks.status,
+      archivedAt: tasks.archivedAt,
       updatedAt: tasks.updatedAt,
       repository: repositories.fullName,
       branchName: tasks.branchName,
     })
     .from(tasks)
-    .innerJoin(repositories, eq(tasks.repositoryId, repositories.id))
+    .leftJoin(repositories, eq(tasks.repositoryId, repositories.id))
     .where(eq(tasks.organizationId, organizationId))
     .orderBy(desc(tasks.updatedAt));
 }
@@ -42,6 +44,7 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
       objective: tasks.objective,
       requestedModel: tasks.requestedModel,
       status: tasks.status,
+      archivedAt: tasks.archivedAt,
       branchName: tasks.branchName,
       baseRef: tasks.baseRef,
       createdAt: tasks.createdAt,
@@ -49,9 +52,10 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
       updatedAt: tasks.updatedAt,
       repository: repositories.fullName,
       repositoryPrivate: repositories.private,
+      selectedSkillIds: tasks.selectedSkillIds,
     })
     .from(tasks)
-    .innerJoin(repositories, eq(tasks.repositoryId, repositories.id))
+    .leftJoin(repositories, eq(tasks.repositoryId, repositories.id))
     .where(and(eq(tasks.organizationId, organizationId), eq(tasks.id, taskId)))
     .limit(1);
   if (!task) return null;
@@ -90,7 +94,7 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
       .select()
       .from(pullRequests)
       .where(eq(pullRequests.taskId, taskId))
-      .limit(1),
+      .orderBy(desc(pullRequests.generation)),
     db()
       .select()
       .from(artifacts)
@@ -110,11 +114,13 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
 
   return {
     task,
+    activeRequestId: await activeRequestId(taskId),
     events,
     plan: plans[0] ?? null,
     files,
     commands,
     pullRequest: prs[0] ?? null,
+    pullRequestHistory: prs,
     artifacts: taskArtifacts,
     workspace: workspace[0] ?? null,
     thread: thread[0] ?? null,

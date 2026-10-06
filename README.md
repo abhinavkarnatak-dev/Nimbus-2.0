@@ -4,6 +4,8 @@ Nimbus is an autonomous cloud coding agent product. Codex app-server owns reposi
 
 This repository is under active construction. See [docs/BUILD_STATUS.md](docs/BUILD_STATUS.md) for verified capabilities and launch dependencies. A missing external credential is never replaced by a production fake.
 
+Nimbus is focused on repository engineering, not general-purpose personal assistance. Product connections are GitHub and Codex only. Slack, Gmail, Notion, and Twilio are outside the current scope and require no setup or credentials.
+
 ## Local requirements
 
 - Node.js 24

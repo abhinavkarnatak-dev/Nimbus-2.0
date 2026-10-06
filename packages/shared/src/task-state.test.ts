@@ -11,6 +11,20 @@ const base = {
 };
 
 describe("task state machine", () => {
+  it("keeps completed sessions resumable and drains queued follow-ups", () => {
+    expect(
+      assertTaskTransition({
+        ...base,
+        from: "completed",
+        to: "queued",
+        actor: "user",
+      }).to,
+    ).toBe("queued");
+    expect(
+      assertTaskTransition({ ...base, from: "running", to: "queued" }).to,
+    ).toBe("queued");
+    expect(allowedTaskTargets("pr_open")).toContain("queued");
+  });
   it("allows the normal adaptive execution path", () => {
     expect(
       assertTaskTransition({ ...base, from: "queued", to: "provisioning" }).to,

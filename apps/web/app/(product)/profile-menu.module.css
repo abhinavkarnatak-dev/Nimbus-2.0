@@ -1,0 +1,96 @@
+.profile {
+  position: relative;
+}
+
+.menu {
+  background: #fff;
+  border-color: var(--line);
+}
+.menu > button:global(.button.danger) {
+  background: #fff1f2;
+  color: var(--red);
+}
+.menu > button:global(.button.danger):hover {
+  background: #ffe4e6;
+}
+
+:global(.app-shell) .menu {
+  background: var(--panel);
+  border-color: var(--line);
+}
+:global(.app-shell) .menu > button:global(.button.danger) {
+  background: var(--red-soft);
+  color: #ff9da2;
+}
+:global(.app-shell) .menu > button:global(.button.danger):hover {
+  background: #54252d;
+}
+.trigger {
+  cursor: pointer;
+  list-style: none;
+  border-radius: 6px;
+}
+.trigger::-webkit-details-marker {
+  display: none;
+}
+.trigger:hover {
+  background: #24272d;
+}
+.trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+}
+.menu > button:global(.button.danger) {
+  width: 100%;
+  min-height: 0;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  justify-content: flex-start;
+  background: #fff1f2;
+  color: var(--red);
+  border-color: transparent;
+}
+.menu > button:global(.button.danger):hover {
+  background: #ffe4e6;
+  color: var(--red);
+}
+@media (max-width: 780px) {
+  .profile {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+  .profile .trigger {
+    display: grid;
+  }
+  .menu {
+    right: auto;
+    width: 200px;
+  }
+}
+
+:global(.app-shell) .menu {
+  background: #fff;
+  border-color: var(--line);
+}
+:global(.app-shell) .menu > button:global(.button.danger) {
+  background: #fff1f2;
+  color: var(--red);
+}
+:global(.app-shell) .menu > button:global(.button.danger):hover {
+  background: #ffe4e6;
+}

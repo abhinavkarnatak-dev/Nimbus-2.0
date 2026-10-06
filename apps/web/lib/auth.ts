@@ -12,6 +12,8 @@ import {
 } from "@nimbus/database";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { googleAuthConfigured } from "./google-auth-policy";
 
 export const SESSION_COOKIE = "nimbus_session";
 
@@ -39,6 +41,34 @@ export async function createLocalSession(): Promise<string> {
 }
 
 export async function currentIdentity() {
+  const googleSession = googleAuthConfigured() ? await auth() : null;
+  if (googleSession?.user?.id) {
+    const [identity] = await db()
+      .select({
+        userId: users.id,
+        userName: users.name,
+        email: users.email,
+        organizationId: organizations.id,
+        organizationName: organizations.name,
+        organizationSlug: organizations.slug,
+        role: memberships.role,
+        onboardingCompletedAt: users.onboardingCompletedAt,
+      })
+      .from(users)
+      .innerJoin(memberships, eq(users.id, memberships.userId))
+      .innerJoin(
+        organizations,
+        eq(memberships.organizationId, organizations.id),
+      )
+      .where(eq(users.id, googleSession.user.id))
+      .limit(1);
+    return identity ? { ...identity, authProvider: "google" as const } : null;
+  }
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.NIMBUS_LOCAL_AUTH !== "true"
+  )
+    return null;
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const [identity] = await db()
@@ -62,7 +92,13 @@ export async function currentIdentity() {
       ),
     )
     .limit(1);
-  return identity ?? null;
+  return identity
+    ? {
+        ...identity,
+        authProvider: "local" as const,
+        onboardingCompletedAt: null,
+      }
+    : null;
 }
 
 export async function requireIdentity() {

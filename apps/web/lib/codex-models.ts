@@ -7,17 +7,48 @@ import {
   eq,
   gt,
 } from "@nimbus/database";
+import { headers } from "next/headers";
+import { deviceConnection, isLocalDeviceRequest } from "./codex-device";
+import type { CodingAgentModel } from "@nimbus/codex";
 
 export interface SelectableCodexModel {
   id: string;
   label: string;
   description?: string;
   isDefault: boolean;
+  defaultReasoningEffort?: string;
+  supportedReasoningEfforts?: Array<{
+    reasoningEffort: string;
+    description: string;
+  }>;
+}
+
+export function selectableModels(
+  models: readonly CodingAgentModel[],
+): SelectableCodexModel[] {
+  return models.map((model) => ({
+    ...model,
+    label: model.displayName ?? model.id,
+    isDefault: model.isDefault ?? false,
+  }));
 }
 
 export async function getSelectableCodexModels(
   userId: string,
+  organizationId?: string,
 ): Promise<SelectableCodexModel[]> {
+  if (organizationId && process.env.NODE_ENV !== "production") {
+    const requestHeaders = await headers();
+    if (
+      isLocalDeviceRequest(
+        new Request("http://localhost", { headers: requestHeaders }),
+      )
+    ) {
+      const connection = await deviceConnection(`${organizationId}:${userId}`);
+      if (connection.status === "connected" && "models" in connection)
+        return selectableModels(connection.models ?? []);
+    }
+  }
   if (process.env.NIMBUS_CODING_PROVIDER === "fake") {
     return [
       {
@@ -43,12 +74,16 @@ export async function getSelectableCodexModels(
     .orderBy(desc(codexModelCatalogs.discoveredAt))
     .limit(1);
 
-  return (catalog?.models ?? []).map((model) => ({
-    id: model.id,
-    label: model.displayName ?? model.id,
-    ...(model.description ? { description: model.description } : {}),
-    isDefault: model.isDefault ?? false,
-  }));
+  return selectableModels(catalog?.models ?? []);
+}
+
+export function isSelectableEffort(
+  model: SelectableCodexModel,
+  effort: string,
+): boolean {
+  return (model.supportedReasoningEfforts ?? []).some(
+    (option) => option.reasoningEffort === effort,
+  );
 }
 
 export function isSelectableModel(

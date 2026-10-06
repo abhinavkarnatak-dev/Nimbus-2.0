@@ -12,6 +12,7 @@ export const EventCategorySchema = z.enum([
   "recovery",
   "message",
   "security",
+  "protocol",
 ]);
 
 export const EventStatusSchema = z.enum([

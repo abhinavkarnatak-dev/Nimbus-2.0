@@ -1,0 +1,43 @@
+.section {
+  margin-bottom: 32px;
+  scroll-margin-top: 90px;
+}
+.section > header {
+  margin-bottom: 20px;
+}
+.section > header h2 {
+  font-size: 24px;
+  margin: 0 0 8px;
+}
+.section > header p {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.6;
+}
+.layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 620px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.layout :global(.connection-card) {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 5;
+  row-gap: 0;
+  min-width: 0;
+}
+
+.layout :global(.connection-details) {
+  grid-row: 4;
+  overflow-wrap: anywhere;
+}
+
+.layout :global(.connection-card-footer) {
+  grid-row: 5;
+  margin-top: 0;
+  padding-top: 24px;
+}

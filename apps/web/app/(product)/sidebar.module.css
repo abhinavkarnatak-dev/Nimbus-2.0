@@ -1,0 +1,6 @@
+@media (max-width: 780px) {
+  .navigation a[href="/settings"],
+  .navigation a[href="/instructions"] {
+    display: flex !important;
+  }
+}

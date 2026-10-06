@@ -1,0 +1,61 @@
+.section {
+  margin-top: 0;
+}
+.card {
+  padding: 24px;
+}
+.card label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.card textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #faf9fd;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 10px 0 18px;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.notice {
+  color: var(--accent-dark);
+  font-size: 12px;
+  margin: 16px 0 0;
+}
+
+:global(.app-shell) .card {
+  background: var(--panel);
+  border-color: var(--line);
+}
+:global(.app-shell) .card textarea {
+  background: var(--panel-subtle);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.error {
+  color: var(--red);
+  font-size: 12px;
+  margin: 16px 0 0;
+}

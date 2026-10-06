@@ -1,0 +1,667 @@
+.workspace:global(.agent-workspace):not(:global(.panel-closed)) {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.workspace :global(.conversation-pane) {
+  min-width: 0;
+}
+.workspace :global(.conversation-pane > .pane-heading) {
+  background: #efedf7;
+  border-bottom-color: #cec7e2;
+  box-shadow: 0 3px 8px rgba(64, 45, 110, 0.06);
+}
+.response {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px !important;
+  line-height: 1.75 !important;
+}
+.conversation :global(.followup-box textarea:focus) {
+  outline: none;
+  box-shadow: none;
+}
+.conversation :global(.followup-box:focus-within) {
+  border-color: #b4a7ed;
+}
+.activityDetails summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.activityDetails summary header {
+  flex: 1;
+  min-width: 0;
+}
+.activityDetails summary::after {
+  content: "+";
+  color: var(--brand-purple-light);
+}
+.activityDetails[open] summary::after {
+  content: "-";
+}
+.activityDetails summary:focus-visible {
+  outline: 2px solid var(--brand-purple-light);
+  outline-offset: 4px;
+}
+.activityDetails > p,
+.activityDetails > pre {
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.activityDetails > pre {
+  white-space: pre-wrap;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8f7fc;
+}
+.conversation :global(.message p) {
+  font-size: 14px;
+}
+.conversation :global(.message header strong) {
+  font-size: 12px;
+}
+.conversation :global(.message header time) {
+  font-size: 10px;
+}
+.conversation :global(.message header) {
+  justify-content: flex-end;
+  height: auto;
+  margin-top: 6px;
+}
+.conversation :global(.user-message) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.conversation :global(.user-message > div > p:first-child) {
+  margin-top: 0;
+}
+.work {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 2px solid #ddd8f5;
+  border-radius: 0 8px 8px 0;
+  background: #faf9fd;
+  color: #666171;
+  font-size: 12px;
+}
+.workLog {
+  margin: 14px 0 14px 33px;
+  border: 1px solid #e9e6f2;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.workLogHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: #655d78;
+  background: #faf9fd;
+  font-size: 12px;
+}
+.workLogHeading span {
+  margin-left: auto;
+  font-size: 11px;
+}
+.workLog .work {
+  border-top: 1px solid #edeaf4;
+  border-left: 0;
+  border-radius: 0;
+}
+.conversation :global(.message) > div {
+  min-width: 0;
+}
+.markdown {
+  color: #454854;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.markdown > :first-child {
+  margin-top: 0 !important;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 10px 0 !important;
+  font-size: inherit;
+  line-height: inherit;
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 22px 0 9px;
+  color: #262936;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.markdown h1 {
+  font-size: 23px;
+}
+.markdown h2 {
+  font-size: 21px;
+}
+.markdown h3 {
+  font-size: 17px;
+}
+.markdown :is(h4, h5, h6) {
+  font-size: 15px;
+}
+.markdown :is(ul, ol) {
+  padding-left: 24px;
+  margin: 10px 0;
+}
+.markdown li {
+  margin: 5px 0;
+}
+.markdown li > p {
+  margin: 3px 0 !important;
+}
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown a {
+  color: var(--brand-purple);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.markdown blockquote {
+  margin: 14px 0;
+  padding: 2px 14px;
+  border-left: 3px solid #c9c0ee;
+  color: #696174;
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid #e9e6f2;
+  margin: 20px 0;
+}
+.markdown table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+}
+.markdown :is(th, td) {
+  padding: 8px 12px;
+  border: 1px solid #e9e6f2;
+  text-align: left;
+}
+.markdown th {
+  background: #f7f6fb;
+}
+.markdown :not(pre) > code {
+  padding: 2px 5px;
+  border: 1px solid #ebe7f4;
+  border-radius: 4px;
+  background: #f7f5fc;
+  font-size: 0.9em;
+}
+.markdown .fileReference {
+  display: inline;
+  color: var(--brand-purple);
+  font-size: 0.95em;
+  background: #f5f2ff;
+  padding: 1px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+.markdown .fileReference:hover {
+  background: #eae2ff;
+  text-decoration: none;
+}
+.fileReference:focus-visible {
+  outline: 2px solid #9479e5;
+  outline-offset: 2px;
+}
+.fileReference small {
+  margin-left: 2px;
+  font-size: inherit;
+  opacity: 0.8;
+}
+.codeBlock {
+  margin: 14px 0;
+  border: 1px solid #30333d;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #17191f;
+}
+.codeHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #24262f;
+  color: #c3c6d3;
+  font: 11px monospace;
+}
+.codeHeading button {
+  border: 1px solid #464957;
+  border-radius: 5px;
+  padding: 4px 7px;
+  color: #e3e4ef;
+  background: transparent;
+  cursor: pointer;
+}
+.codeActions {
+  display: inline-flex;
+  gap: 6px;
+}
+.codeHeading button:focus-visible {
+  outline: 2px solid #b4a2ff;
+  outline-offset: 2px;
+}
+.codeBlock pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  white-space: pre;
+  color: #e8eaf3;
+  font:
+    12px/1.7 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.work summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  flex-wrap: wrap;
+  list-style: none;
+}
+.work summary strong {
+  color: #393344;
+}
+.work summary time {
+  margin-left: auto;
+  font-size: 10px;
+}
+.work summary::after {
+  content: "+";
+  font-size: 15px;
+}
+.work[open] summary::after {
+  content: "-";
+}
+.work pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand-purple-light);
+  flex-shrink: 0;
+}
+.running {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .running {
+    animation: none;
+  }
+}
+.stoppedRequest {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  text-align: center;
+  padding: 10px 12px;
+  border: 1px solid #d8d0ef;
+  border-radius: 8px;
+  background: #f5f2fc;
+  color: #67508f;
+  font-size: 12px;
+}
+.stoppedRequest > div {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+}
+.stoppedRequest span {
+  color: #80728f;
+  font-size: 11px;
+}
+.conversation :global(.user-message) {
+  background: #efebf8;
+  border: 1px solid #ded6ef;
+  border-radius: 8px;
+  padding: 12px;
+  width: 65%;
+  box-sizing: border-box;
+  margin: 10px 0 10px auto;
+  overflow-wrap: anywhere;
+  scroll-margin-top: 12px;
+}
+.conversation :global(.user-message:focus-visible) {
+  outline: 2px solid #b8a7eb;
+  outline-offset: 2px;
+}
+.headerActions {
+  gap: 9px;
+}
+.conversation {
+  position: relative;
+}
+.conversation :global(.conversation-scroll) {
+  padding-left: 44px;
+  padding-right: 44px;
+}
+.promptNavigator {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  z-index: 10;
+  transform: translateY(-50%);
+  padding-left: 8px;
+}
+.promptBars {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.promptBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  min-height: 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.promptBar span {
+  width: 20px;
+  height: 2px;
+  background: #c9c8cd;
+  border-radius: 2px;
+}
+.promptBar[aria-current="step"] span,
+.promptBar:hover span {
+  background: #64616b;
+}
+.promptMenu {
+  position: absolute;
+  z-index: 10;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(360px, calc(100vw - 90px));
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 5px;
+  background: white;
+  border: 1px solid #e2ddec;
+  border-radius: 16px;
+  box-shadow: 0 2px 9px #30204920;
+}
+.promptMenu button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #595267;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.promptMenu button:hover,
+.promptMenu button:focus-visible,
+.promptMenu button[data-active="true"] {
+  background: #f1f2f5;
+}
+
+/* Keep generated file/code blocks readable in the light workspace theme. */
+.codeBlock {
+  background: #17191f !important;
+}
+.codeBlock pre {
+  background: #17191f !important;
+  color: #e8eaf3 !important;
+}
+.promptMenu button span:last-child {
+  font-size: 14px;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer {
+  position: relative;
+  flex-shrink: 0;
+}
+.latestButton {
+  position: absolute;
+  top: -44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #dedde3;
+  border-radius: 50%;
+  background: white;
+  color: #57535f;
+  box-shadow: 0 2px 6px #24203212;
+  cursor: pointer;
+}
+.latestButton:hover {
+  background: #f6f4fa;
+}
+.stopButton {
+  border: 1px solid #c34b4b !important;
+  background: transparent !important;
+  color: #c34b4b !important;
+  cursor: pointer;
+}
+.stopButton:not(:disabled):hover {
+  border-color: #a83d3d !important;
+  background: #fff3f3 !important;
+  color: #a83d3d !important;
+}
+.sendingButton {
+  width: auto !important;
+  min-width: 88px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+:global(.app-shell) .conversation,
+:global(.app-shell) .activityDetails,
+:global(.app-shell) .work,
+:global(.app-shell) .codeBlock,
+:global(.app-shell) .promptMenu {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--line);
+}
+:global(.app-shell) .conversation :global(.user-message) {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+:global(.app-shell) .conversation :global(.followup-box),
+:global(.app-shell) .conversation :global(.followup-box textarea) {
+  background: var(--panel-subtle);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+:global(.app-shell) .activityDetails summary,
+:global(.app-shell) .work summary,
+:global(.app-shell) .promptMenu button:hover,
+:global(.app-shell) .promptMenu button:focus-visible {
+  background: var(--panel-subtle);
+  color: var(--ink);
+}
+
+.workspace :global(.conversation-pane > .pane-heading) {
+  background: var(--panel-subtle);
+  border-bottom-color: var(--line);
+}
+.activityDetails > pre {
+  background: var(--panel-subtle);
+  color: var(--ink);
+}
+.work {
+  background: var(--panel-subtle);
+  color: var(--muted);
+  border-left-color: #51458a;
+}
+.workLog {
+  border-color: var(--line);
+}
+.workLogHeading {
+  background: var(--panel-subtle);
+  color: var(--muted);
+}
+.workLog .work {
+  border-top-color: var(--line);
+}
+.markdown {
+  color: var(--ink);
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--ink);
+}
+.markdown blockquote {
+  color: var(--muted);
+  border-left-color: #51458a;
+}
+.markdown hr,
+.markdown :is(th, td) {
+  border-color: var(--line);
+}
+.markdown th {
+  background: var(--panel-subtle);
+}
+.markdown :not(pre) > code {
+  background: var(--panel-subtle);
+  border-color: var(--line);
+}
+.markdown .fileReference {
+  background: var(--accent-soft);
+  color: #c6baff;
+}
+.markdown .fileReference:hover {
+  background: #342b58;
+}
+.stoppedRequest {
+  background: var(--red-soft);
+  border-color: #71323d;
+  color: #ffabb0;
+}
+.stoppedRequest span {
+  color: #d88f99;
+}
+.promptMenu {
+  background: var(--panel) !important;
+  border-color: var(--line);
+  color: var(--ink);
+}
+.promptMenu button {
+  color: var(--ink);
+}
+.promptMenu button:hover,
+.promptMenu button:focus-visible,
+.promptMenu button[data-active="true"] {
+  background: var(--accent-soft);
+}
+
+.workspace :global(.conversation-pane > .pane-heading) {
+  background: #efedf7;
+  border-bottom-color: #cec7e2;
+}
+.activityDetails > pre {
+  background: #f8f7fc;
+  color: inherit;
+}
+.work {
+  background: #faf9fd;
+  color: #666171;
+}
+.workLogHeading {
+  background: #faf9fd;
+  color: #655d78;
+}
+.markdown {
+  color: #454854;
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  color: #262936;
+}
+.markdown blockquote {
+  color: #696174;
+  border-left-color: #c9c0ee;
+}
+.markdown hr,
+.markdown :is(th, td) {
+  border-color: #e9e6f2;
+}
+.markdown th {
+  background: #f7f6fb;
+}
+.markdown :not(pre) > code {
+  background: #f7f5fc;
+  border-color: #ebe7f4;
+}
+.markdown .fileReference {
+  background: #f5f2ff;
+  color: var(--brand-purple);
+}
+.markdown .fileReference:hover {
+  background: #eae2ff;
+}
+.stoppedRequest {
+  background: #f5f2fc;
+  border-color: #d8d0ef;
+  color: #67508f;
+}
+.stoppedRequest span {
+  color: #80728f;
+}
+.promptMenu {
+  background: #fff !important;
+  border-color: #e2ddec;
+  color: #595267;
+}
+.promptMenu button {
+  color: #595267;
+}
+.promptMenu button:hover,
+.promptMenu button:focus-visible,
+.promptMenu button[data-active="true"] {
+  background: #f1f2f5;
+}

@@ -1,9 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { db, githubAuthorizations } from "@nimbus/database";
 import { hasGitHubAppConfig } from "@nimbus/github";
-import { currentIdentity, SESSION_COOKIE } from "@/lib/auth";
-import { gitHubCallbackUrl, hashGitHubState } from "@/lib/github-security";
-import { cookies } from "next/headers";
+import { currentIdentity } from "@/lib/auth";
+import {
+  gitHubCallbackUrl,
+  hashGitHubState,
+  GITHUB_BROWSER_COOKIE,
+} from "@/lib/github-security";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -16,11 +19,6 @@ export async function POST(request: Request) {
   if (!["owner", "admin"].includes(identity.role))
     return NextResponse.json(
       { error: "Organization administrator required" },
-      { status: 403 },
-    );
-  if (request.headers.get("origin") !== new URL(request.url).origin)
-    return NextResponse.json(
-      { error: "Invalid request origin" },
       { status: 403 },
     );
   if (!hasGitHubAppConfig())
@@ -37,9 +35,18 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token)
-    return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+  if (request.headers.get("origin") !== new URL(redirectUri).origin)
+    return NextResponse.json(
+      { error: "Start GitHub connection from the configured Nimbus origin" },
+      { status: 403 },
+    );
+  const token = randomBytes(32).toString("base64url");
+  const form = request.headers
+    .get("content-type")
+    ?.includes("application/x-www-form-urlencoded")
+    ? await request.formData()
+    : null;
+  const onboarding = form?.get("returnTo") === "/onboarding";
   const state = randomBytes(32).toString("base64url");
   await db()
     .insert(githubAuthorizations)
@@ -51,12 +58,31 @@ export async function POST(request: Request) {
       redirectUri,
       expiresAt: new Date(Date.now() + 600_000).toISOString(),
     });
-  const target = new URL("https://github.com/login/oauth/authorize");
-  target.searchParams.set("client_id", process.env.GITHUB_APP_CLIENT_ID!);
-  target.searchParams.set("redirect_uri", redirectUri);
+  const target = new URL(
+    `https://github.com/apps/${encodeURIComponent(process.env.GITHUB_APP_SLUG!)}/installations/new`,
+  );
   target.searchParams.set("state", state);
-  return new NextResponse(null, {
+  const response = new NextResponse(null, {
     status: 303,
     headers: { location: target.toString(), "cache-control": "no-store" },
   });
+  response.cookies.set(GITHUB_BROWSER_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: new URL(redirectUri).protocol === "https:",
+    path: "/api/github",
+    maxAge: 600,
+  });
+  response.cookies.set(
+    "nimbus_github_return",
+    onboarding ? "/onboarding" : "/settings#connections",
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: new URL(redirectUri).protocol === "https:",
+      path: "/api/github",
+      maxAge: 600,
+    },
+  );
+  return response;
 }

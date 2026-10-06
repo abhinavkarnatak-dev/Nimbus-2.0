@@ -1,5 +1,12 @@
 import { and, db, eq, isNull, memories } from "@nimbus/database";
 import { requireIdentity } from "@/lib/auth";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Memory",
+  description:
+    "Inspect Nimbus workspace memory, scope, sources, and retention.",
+};
 
 export default async function MemoryPage() {
   const identity = await requireIdentity();

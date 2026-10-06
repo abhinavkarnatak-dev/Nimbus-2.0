@@ -1,11 +1,38 @@
 # OAuth and GitHub App setup
 
-Nimbus uses two separate connections:
+Nimbus separates application sign-in from coding connections:
 
+- Google through Auth.js identifies the Nimbus user and creates a private workspace.
 - A GitHub App grants repository access, branch push, pull request, and webhook capabilities.
-- Sign in with ChatGPT grants verified OpenAI identity and, when approved and eligible, ChatGPT plan usage for Codex app-server.
+- Codex authorization grants eligible ChatGPT plan usage for Codex app-server. It is not the Nimbus login button.
 
 An OpenAI API key is not part of either flow.
+
+## Google sign-in
+
+Create an OAuth client with application type **Web application** in Google Cloud Console. Configure the consent screen and add your Google account as a test user if the app is in testing mode. Only `openid email profile` scopes are requested; no Gmail or other Google service access is requested.
+
+- Authorized JavaScript origin: `http://localhost:3000`
+- Authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
+
+Use localhost consistently, not `127.0.0.1`. For deployment, register the stable HTTPS app origin and the same callback path on that origin; update `AUTH_URL` to match. Do not use an ephemeral tunnel as your permanent OAuth registration.
+
+Add these values only to `apps/web/.env.local`:
+
+```dotenv
+AUTH_URL=http://localhost:3000
+AUTH_SECRET=<random-secret-at-least-32-characters>
+AUTH_GOOGLE_ID=<Google-OAuth-client-ID>
+AUTH_GOOGLE_SECRET=<Google-OAuth-client-secret>
+```
+
+Generate `AUTH_SECRET` locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Keep it stable across restarts. Never share secrets in chat or put them in executor configuration. Restart only the web service after configuring it; reconnect Codex if its ephemeral connection was interrupted by that restart.
+
+Auth.js validates OAuth state and PKCE. Nimbus requires a verified Google email, persists identity by Google subject ID, and atomically creates a user, account, private organization, and owner membership. Existing emails are not automatically linked to a different account. Google tokens are not stored or returned to the browser. Application sessions use Auth.js encrypted HttpOnly JWT cookies with an eight-hour lifetime; every request resolves current database membership. No database migration is needed because these identity tables already exist.
+
+Signing in with Google creates a separate workspace from the shared local demonstration identity, named using only the user's first name. New users land on `/onboarding`, a centered GitHub and Codex setup page. Connect both services and select at least one usable repository. GitHub's setup callback returns to this page, which polls authenticated connection status and enables Continue after both connections are confirmed. Clicking Continue revalidates the connections, records completion, and opens Mission Control. Failed checks have a visible manual retry; background checks never silently complete setup. Completion uses the registered `AUTH_URL` origin for CSRF validation rather than the internal Next.js request address. The completion timestamp survives refresh and future sign-ins; later connection management is in Settings > Connections at `/settings#connections`. Legacy `/integrations` links redirect there. GitHub connections made outside onboarding return to the Settings section. Existing development repositories and credentials are not silently reassigned. Sign out is available in Settings. Development-only sign-in remains available for existing local tests and is rejected in production.
+
+The implementation is pinned to `next-auth@5.0.0-beta.32`, following the current Auth.js App Router installation guide. This is still a beta dependency and remains a launch risk. Live Google consent and code exchange require your credentials and browser authorization; unit and simulated checks are not proof of that exchange.
 
 ## GitHub App
 
@@ -27,7 +54,7 @@ Replace `https://nimbus.example.com` with the deployed Nimbus origin.
 
 Production callback and webhook URLs must be public HTTPS endpoints. For local development, use a dedicated HTTPS tunnel for webhooks. Do not reuse a production webhook secret locally.
 
-For the current local development sign-in, register `http://localhost:3000/api/github/callback` as the callback and set `GITHUB_APP_CALLBACK_URL` to that exact value. Open Nimbus on localhost and start the connection from Integrations after installing the App. Use the Cloudflare HTTPS origin for the homepage and webhook. The local development sign-in is blocked over Cloudflare, and browser sessions do not transfer between localhost and the tunnel hostname. Production callbacks must use the public HTTPS origin with production authentication.
+For the current local development sign-in, register `http://localhost:3000/api/github/callback` as the first callback and set `GITHUB_APP_CALLBACK_URL` to that exact value. Enable **Request user authorization (OAuth) during installation** in GitHub App settings. GitHub uses the first callback for installation-time authorization. Leave Setup URL empty. Open Nimbus on localhost, click **Connect GitHub** in Integrations, and select the GitHub account and repositories. GitHub may require sign-in and consent. After authorization, Nimbus verifies and imports the selected repositories automatically; there is no separate Install App button or second Connect action. Existing installations can use **Reconnect GitHub**. Use the Cloudflare HTTPS origin for the homepage and webhook. The local development sign-in is blocked over Cloudflare, and browser sessions do not transfer between localhost and the tunnel hostname. Production callbacks must use the public HTTPS origin with production authentication.
 
 The routes are implemented at `/api/github/connect` (POST), `/api/github/callback` (GET), and `/api/github/webhooks` (POST). The callback requires a Nimbus owner or administrator session, consumes state once, verifies installation access through GitHub user and App APIs, and imports repositories in a database transaction. Network requests occur before that transaction. This initial connection flow accepts one active installation or an explicit authorized installation ID; installation selection for accounts with several installations remains pending.
 
@@ -93,6 +120,12 @@ Put all local GitHub App values only in ignored `apps/web/.env.local`. The execu
 The GitHub App installation ID is not an environment variable. GitHub returns it after installation, Nimbus verifies it with the authenticated GitHub user and GitHub App API, then stores it against the Nimbus organization. Installation access tokens are created just in time and expire after one hour.
 
 ## Sign in with ChatGPT and Codex
+
+For this personal local project, open Connections on `http://localhost:3000`, click `Connect to Codex`, open the displayed link, and enter the one-time code while signing in to your own ChatGPT account. If necessary, enable device-code login in ChatGPT security settings first. No API key, OpenAI client secret, or manually copied token is needed.
+
+The implementation uses `account/login/start` with `type: "chatgptDeviceCode"`, verifies the account through `account/read`, and displays the models returned by `model/list`. Each Nimbus identity has a separate Codex process and workspace-local configuration directory. Credentials use Codex's ephemeral in-memory storage; no existing Codex auth cache is read or copied. Browser refresh retains a pending login, but restarting the web server loses this connection and requires reconnecting. Disconnect stops that Nimbus process without logging out your existing Codex installation. This connection does not change the separately configured task executor mode.
+
+The route rejects public hosts, Cloudflare tunnel traffic, and production mode. The current official [app-server authentication contract](https://learn.chatgpt.com/docs/app-server#auth-endpoints) excludes commercial or hosted services; this personal local connection is not a cloud-client approval workaround.
 
 Nimbus is a remotely hosted cloud product. It requires an approved commercial Sign in with ChatGPT integration with both identity and ChatGPT plan usage. Complete the OpenAI interest form and choose `Sign in and ChatGPT plan use for AI requests`.
 

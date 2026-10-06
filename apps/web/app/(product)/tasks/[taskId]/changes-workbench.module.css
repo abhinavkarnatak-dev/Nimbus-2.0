@@ -1,0 +1,148 @@
+.body {
+  padding: 16px 17px;
+}
+.state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: var(--red);
+}
+.spinner {
+  flex-shrink: 0;
+  color: var(--accent);
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+}
+.totals b,
+.file b {
+  color: #1a7f37;
+}
+.totals i,
+.file i {
+  color: #cf222e;
+  font-style: normal;
+}
+.file {
+  border: 1px solid #e2e2ef;
+  border-radius: 9px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.file summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+  font-size: 12px;
+  background: #f8f9fc;
+}
+.file summary::before {
+  content: "▸";
+}
+.file[open] summary::before {
+  content: "▾";
+}
+.path {
+  flex: 1;
+  font-weight: 600;
+  min-width: 120px;
+  overflow-wrap: anywhere;
+}
+.file pre {
+  margin: 0;
+  padding: 12px 0;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 4;
+}
+.file pre span {
+  display: block;
+  padding: 0 12px;
+  min-width: max-content;
+}
+.addition {
+  background: #e6ffec;
+  color: #116329;
+}
+.deletion {
+  background: #ffebe9;
+  color: #a40e26;
+}
+.hunk {
+  background: #eef1ff;
+  color: var(--brand-purple);
+}
+
+:global(.app-shell) .file,
+:global(.app-shell) .hunk {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+:global(.app-shell) .addition {
+  background: var(--green-soft);
+  color: #9be4bd;
+}
+:global(.app-shell) .deletion {
+  background: var(--red-soft);
+  color: #ffabb0;
+}
+
+.file,
+.hunk {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+.addition {
+  background: var(--green-soft);
+  color: #9be4bd;
+}
+.deletion {
+  background: var(--red-soft);
+  color: #ffabb0;
+}
+
+.file,
+.hunk {
+  background: #fff;
+  border-color: #e2e2ef;
+  color: inherit;
+}
+.addition {
+  background: #e6ffec;
+  color: #116329;
+}
+.deletion {
+  background: #ffebe9;
+  color: #a40e26;
+}

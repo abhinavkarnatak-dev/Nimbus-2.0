@@ -13,6 +13,7 @@ import {
 } from "@nimbus/database";
 import { verifyGitHubWebhookSignature } from "@nimbus/github";
 import { readBoundedBody } from "@/lib/github-security";
+import { reconcileGitHubRepositories } from "@/lib/github-repositories";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -22,6 +23,7 @@ const Payload = z.object({
   installation: z.object({ id: z.number().int().positive() }).optional(),
   repository: repository.optional(),
   repositories_removed: z.array(repository).max(10000).optional(),
+  repositories_added: z.array(repository).max(10000).optional(),
   pull_request: z
     .object({
       number: z.number().int().positive(),
@@ -83,6 +85,31 @@ export async function POST(request: Request) {
     );
   }
   try {
+    const [processed] = await db()
+      .select({ status: webhookDeliveries.status })
+      .from(webhookDeliveries)
+      .where(
+        and(
+          eq(webhookDeliveries.provider, "github"),
+          eq(webhookDeliveries.deliveryId, deliveryId),
+        ),
+      );
+    if (processed?.status === "processed")
+      return NextResponse.json(
+        { accepted: true, duplicate: true },
+        { status: 202 },
+      );
+    if (eventType === "installation_repositories" && payload.installation) {
+      const [installation] = await db()
+        .select()
+        .from(githubInstallations)
+        .where(eq(githubInstallations.installationId, payload.installation.id));
+      if (installation)
+        await reconcileGitHubRepositories(
+          installation.organizationId,
+          installation.installationId,
+        );
+    }
     const duplicate = await db().transaction(async (tx) => {
       const inserted = await tx
         .insert(webhookDeliveries)
@@ -159,17 +186,6 @@ export async function POST(request: Request) {
                   ),
                 );
           }
-          for (const removed of payload.repositories_removed ?? [])
-            await tx
-              .update(repositories)
-              .set({ archived: true, updatedAt: now })
-              .where(
-                and(
-                  eq(repositories.organizationId, installation.organizationId),
-                  eq(repositories.githubInstallationId, installation.id),
-                  eq(repositories.githubRepositoryId, removed.id),
-                ),
-              );
           if (
             eventType === "pull_request" &&
             payload.pull_request &&
@@ -212,7 +228,7 @@ export async function POST(request: Request) {
         (eventType === "installation" &&
           ["deleted", "suspend", "unsuspend"].includes(payload.action ?? "")) ||
         (eventType === "installation_repositories" &&
-          payload.action === "removed") ||
+          ["added", "removed"].includes(payload.action ?? "")) ||
         eventType === "pull_request";
       await tx
         .update(webhookDeliveries)

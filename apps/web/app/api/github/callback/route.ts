@@ -13,14 +13,14 @@ import {
   sql,
 } from "@nimbus/database";
 import { GitHubAppClient, loadGitHubAppConfig } from "@nimbus/github";
-import { currentIdentity, SESSION_COOKIE } from "@/lib/auth";
-import { hashGitHubState } from "@/lib/github-security";
+import { currentIdentity } from "@/lib/auth";
+import { hashGitHubState, GITHUB_BROWSER_COOKIE } from "@/lib/github-security";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
   const identity = await currentIdentity();
-  const browserToken = (await cookies()).get(SESSION_COOKIE)?.value;
+  const browserToken = (await cookies()).get(GITHUB_BROWSER_COOKIE)?.value;
   if (!identity || !browserToken)
     return NextResponse.json(
       {
@@ -81,6 +81,15 @@ export async function GET(request: Request) {
       (item) => !item.suspendedAt,
     );
     const requested = query.get("installation_id");
+    if (
+      requested !== null &&
+      (!/^[1-9]\d*$/.test(requested) ||
+        !Number.isSafeInteger(Number(requested)))
+    )
+      return NextResponse.json(
+        { error: "Invalid GitHub installation" },
+        { status: 400 },
+      );
     const selected = requested
       ? accessible.find((item) => item.id === Number(requested))
       : accessible.length === 1
@@ -90,7 +99,7 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Install the GitHub App on your test repository first. For this connection, authorize an account with one active installation.",
+            "GitHub did not return an accessible installation. Start Connect GitHub again and select the intended GitHub account and repositories.",
         },
         { status: 409 },
       );
@@ -195,7 +204,13 @@ export async function GET(request: Request) {
     });
     return new NextResponse(null, {
       status: 303,
-      headers: { location: "/repositories", "cache-control": "no-store" },
+      headers: {
+        location:
+          (await cookies()).get("nimbus_github_return")?.value === "/onboarding"
+            ? "/onboarding"
+            : "/settings#connections",
+        "cache-control": "no-store",
+      },
     });
   } catch {
     return NextResponse.json(

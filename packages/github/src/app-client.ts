@@ -1,4 +1,5 @@
 import { createSign } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { GitHubAppConfig } from "./config.js";
 
@@ -147,6 +148,7 @@ export class GitHubAppClient {
 
   async createInstallationToken(
     installationId: number,
+    repositoryIds?: number[],
   ): Promise<InstallationToken> {
     const response = await this.#api(
       `/app/installations/${installationId}/access_tokens`,
@@ -154,6 +156,7 @@ export class GitHubAppClient {
       {
         method: "POST",
         body: JSON.stringify({
+          ...(repositoryIds ? { repository_ids: repositoryIds } : {}),
           permissions: {
             checks: "read",
             contents: "write",
@@ -179,13 +182,367 @@ export class GitHubAppClient {
         `/installation/repositories?per_page=100&page=${page}`,
         token,
       );
-      const entries = Array.isArray(response.repositories)
-        ? response.repositories
-        : [];
+      if (!Array.isArray(response.repositories))
+        throw new Error("GitHub repository listing was malformed");
+      const entries = response.repositories;
       repositories.push(...entries.map(parseRepository));
       if (entries.length < 100) return repositories;
     }
     throw new Error("GitHub repository pagination exceeded the safety limit");
+  }
+
+  async ensurePullRequest(
+    token: string,
+    owner: string,
+    repository: string,
+    input: { head: string; base: string; title: string; body: string },
+  ) {
+    const match = await this.findSessionPullRequest(
+      token,
+      owner,
+      repository,
+      input.head,
+      input.base,
+    );
+    const path = `/repos/${owner}/${repository}/pulls`;
+    const result =
+      match ??
+      (await this.#api(path, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }));
+    const number = numberField(result, "number");
+    const url = stringField(result, "html_url");
+    if (
+      !number ||
+      !url?.startsWith(`https://github.com/${owner}/${repository}/pull/`)
+    )
+      throw new Error("GitHub pull request response was malformed");
+    if (result.state !== "open")
+      throw new Error("GitHub did not confirm an open pull request");
+    return {
+      number,
+      url,
+      state: "open",
+      headSha: stringField(asRecord(result.head), "sha"),
+    };
+  }
+
+  async findSessionPullRequest(
+    token: string,
+    owner: string,
+    repository: string,
+    head: string,
+    base: string,
+  ) {
+    if (![owner, repository].every((part) => /^[a-zA-Z0-9_.-]+$/.test(part)))
+      throw new Error("Invalid repository name");
+    const path = `/repos/${owner}/${repository}/pulls`;
+    const existing = await this.#requestJson(
+      `${path}?state=all&head=${encodeURIComponent(`${owner}:${head}`)}&base=${encodeURIComponent(base)}&per_page=100`,
+      token,
+    );
+    if (!Array.isArray(existing))
+      throw new Error("GitHub pull request listing was malformed");
+    const rows = existing;
+    const match = rows.find(
+      (row) =>
+        asRecord(asRecord(row).head).ref === head &&
+        asRecord(asRecord(row).base).ref === base,
+    );
+    if (match && asRecord(match).state !== "open")
+      throw new Error(
+        "This session's pull request is closed. Start a new session for a new PR.",
+      );
+    return match ? asRecord(match) : null;
+  }
+
+  async sessionPullRequestState(
+    token: string,
+    owner: string,
+    repository: string,
+    number: number,
+    branch: string,
+    base: string,
+  ) {
+    if (
+      ![owner, repository].every((part) => /^[\w.-]+$/.test(part)) ||
+      !Number.isSafeInteger(number) ||
+      number < 1
+    )
+      throw new Error("Invalid PR target");
+    const pr = await this.#api(
+      `/repos/${owner}/${repository}/pulls/${number}`,
+      token,
+    );
+    const head = asRecord(pr.head);
+    if (
+      head.ref !== branch ||
+      asRecord(pr.base).ref !== base ||
+      asRecord(head.repo).full_name !== `${owner}/${repository}`
+    )
+      throw new Error("PR does not belong to this session");
+    if (pr.state !== "open" && pr.state !== "closed")
+      throw new Error("Invalid PR state");
+    return {
+      state: pr.merged_at ? "merged" : pr.state,
+      headSha: stringField(head, "sha"),
+    };
+  }
+
+  async pullRequestSummary(
+    token: string,
+    owner: string,
+    repository: string,
+    number: number,
+    branch: string,
+    base: string,
+    expectedSha: string,
+  ) {
+    if (
+      ![owner, repository].every((part) => /^[\w.-]+$/.test(part)) ||
+      !Number.isSafeInteger(number) ||
+      number < 1
+    )
+      throw new Error("Invalid PR summary target");
+    const path = `/repos/${owner}/${repository}/pulls/${number}`;
+    const pr = await this.#api(path, token);
+    const head = asRecord(pr.head);
+    if (
+      head.ref !== branch ||
+      head.sha !== expectedSha ||
+      asRecord(pr.base).ref !== base ||
+      asRecord(head.repo).full_name !== `${owner}/${repository}`
+    )
+      throw new Error("PR summary commit does not match this session");
+    const count = (value: unknown) => {
+      if (
+        typeof value !== "number" ||
+        !Number.isSafeInteger(value) ||
+        value < 0
+      )
+        throw new Error("Invalid PR change statistics");
+      return value;
+    };
+    const files: { path: string; additions: number; deletions: number }[] = [];
+    for (let page = 1; page <= 6; page++) {
+      const result = await this.#requestJson(
+        `${path}/files?per_page=100&page=${page}`,
+        token,
+      );
+      if (!Array.isArray(result)) throw new Error("Invalid PR file listing");
+      for (const value of result) {
+        const item = asRecord(value);
+        if (typeof item.filename !== "string")
+          throw new Error("Invalid PR filename");
+        files.push({
+          path: item.filename,
+          additions: count(item.additions),
+          deletions: count(item.deletions),
+        });
+      }
+      if (result.length < 100) break;
+      if (page === 6) throw new Error("PR file listing exceeds the safe limit");
+    }
+    if (
+      files.length !== count(pr.changed_files) ||
+      typeof pr.title !== "string"
+    )
+      throw new Error("PR summary is not yet consistent");
+    return {
+      title: pr.title,
+      repository: `${owner}/${repository}`,
+      number,
+      url: `https://github.com/${owner}/${repository}/pull/${number}`,
+      additions: count(pr.additions),
+      deletions: count(pr.deletions),
+      changedFiles: files.length,
+      files,
+    };
+  }
+
+  async confirmPullRequestHead(
+    token: string,
+    owner: string,
+    repository: string,
+    number: number,
+    branch: string,
+    base: string,
+    expectedSha: string,
+    signal?: AbortSignal,
+  ) {
+    if (
+      ![owner, repository].every((part) => /^[\w.-]+$/.test(part)) ||
+      !Number.isSafeInteger(number) ||
+      number < 1 ||
+      !/^[a-f0-9]{40}$/.test(expectedSha)
+    )
+      throw new Error("Invalid PR confirmation target");
+    for (let attempt = 0; attempt < 6; attempt++) {
+      signal?.throwIfAborted();
+      const pr = await this.#api(
+        `/repos/${owner}/${repository}/pulls/${number}`,
+        token,
+      );
+      const head = asRecord(pr.head);
+      if (
+        pr.state !== "open" ||
+        pr.merged_at ||
+        head.ref !== branch ||
+        asRecord(pr.base).ref !== base ||
+        asRecord(head.repo).full_name !== `${owner}/${repository}`
+      )
+        throw new Error("Pull request is no longer this session's open PR");
+      if (head.sha === expectedSha) return;
+      if (attempt < 5) await delay(1000, undefined, signal ? { signal } : {});
+    }
+    throw new Error(
+      "GitHub has not confirmed the published commit yet. Retry updating the PR.",
+    );
+  }
+
+  async readPullRequestFeedback(
+    token: string,
+    owner: string,
+    repository: string,
+    number: number,
+    branch: string,
+    base: string,
+  ) {
+    if (
+      !/^[\w.-]+$/.test(owner) ||
+      !/^[\w.-]+$/.test(repository) ||
+      !Number.isSafeInteger(number) ||
+      number < 1
+    )
+      throw new Error("Invalid pull request target");
+    const path = `/repos/${owner}/${repository}`;
+    const pr = await this.#api(`${path}/pulls/${number}`, token);
+    const head = asRecord(pr.head);
+    if (
+      head.ref !== branch ||
+      asRecord(pr.base).ref !== base ||
+      asRecord(head.repo).full_name !== `${owner}/${repository}`
+    )
+      throw new Error("Pull request does not belong to this session");
+    const list = async (endpoint: string) => {
+      const items: Record<string, unknown>[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const result = await this.#requestJson(
+          `${path}/${endpoint}?per_page=100&page=${page}`,
+          token,
+        );
+        if (!Array.isArray(result))
+          throw new Error("Invalid GitHub feedback response");
+        for (const entry of result) {
+          const item = asRecord(entry);
+          if (typeof item.id !== "number" || typeof item.body !== "string")
+            throw new Error("Invalid GitHub feedback item");
+          items.push({
+            id: item.id,
+            author: asRecord(item.user).login,
+            body: item.body,
+            url: item.html_url,
+            createdAt: item.created_at,
+            updatedAt: item.updated_at,
+            state: item.state,
+            path: item.path,
+            line: item.line,
+            originalLine: item.original_line,
+            diffHunk: item.diff_hunk,
+            commitId: item.commit_id,
+            replyTo: item.in_reply_to_id,
+          });
+        }
+        if (result.length < 100) return items;
+      }
+      throw new Error(
+        "PR feedback exceeds the safe fetch limit; narrow the request",
+      );
+    };
+    const [comments, reviewComments, reviews] = await Promise.all([
+      list(`issues/${number}/comments`),
+      list(`pulls/${number}/comments`),
+      list(`pulls/${number}/reviews`),
+    ]);
+    const feedback = {
+      number,
+      url: pr.html_url,
+      state: pr.state,
+      merged: Boolean(pr.merged_at),
+      headSha: head.sha,
+      comments,
+      reviewComments,
+      reviews,
+    };
+    if (JSON.stringify(feedback).length > 250_000)
+      throw new Error("PR feedback exceeds the safe context limit");
+    return feedback;
+  }
+
+  async managePullRequest(
+    token: string,
+    owner: string,
+    repository: string,
+    number: number,
+    input: {
+      action: "close" | "merge";
+      branch: string;
+      base: string;
+      expectedHeadSha: string;
+      mergeMethod?: "merge" | "squash" | "rebase" | undefined;
+    },
+  ) {
+    if (
+      ![owner, repository].every((part) => /^[a-zA-Z0-9_.-]+$/.test(part)) ||
+      !Number.isSafeInteger(number) ||
+      number < 1
+    )
+      throw new Error("Invalid pull request target");
+    const path = `/repos/${owner}/${repository}/pulls/${number}`;
+    const pr = await this.#api(path, token);
+    const head = asRecord(pr.head);
+    if (
+      head.ref !== input.branch ||
+      asRecord(pr.base).ref !== input.base ||
+      asRecord(head.repo).full_name !== `${owner}/${repository}`
+    )
+      throw new Error("Pull request does not belong to this session's branch");
+    if (pr.merged_at) return { state: "merged" as const };
+    if (pr.state === "closed") {
+      if (input.action === "close") return { state: "closed" as const };
+      throw new Error("This pull request is closed and cannot be merged");
+    }
+    if (pr.state !== "open")
+      throw new Error("Unknown GitHub pull request state");
+    if (input.action === "close") {
+      const closed = await this.#api(path, token, {
+        method: "PATCH",
+        body: JSON.stringify({ state: "closed" }),
+      });
+      if (closed.state !== "closed")
+        throw new Error("GitHub did not confirm closing the pull request");
+      return { state: "closed" as const };
+    }
+    if (
+      !/^[a-f0-9]{40}$/.test(input.expectedHeadSha) ||
+      head.sha !== input.expectedHeadSha
+    )
+      throw new Error(
+        "The pull request changed since it was loaded. Refresh and review the latest changes before merging.",
+      );
+    const merged = await this.#api(`${path}/merge`, token, {
+      method: "PUT",
+      body: JSON.stringify({
+        sha: input.expectedHeadSha,
+        merge_method: input.mergeMethod ?? "squash",
+      }),
+    });
+    if (merged.merged !== true)
+      throw new Error(
+        stringField(merged, "message") ?? "GitHub did not confirm the merge",
+      );
+    return { state: "merged" as const };
   }
 
   async #api(
@@ -193,8 +550,17 @@ export class GitHubAppClient {
     token: string,
     init: RequestInit = {},
   ): Promise<Record<string, unknown>> {
+    return asRecord(await this.#requestJson(path, token, init));
+  }
+
+  async #requestJson(
+    path: string,
+    token: string,
+    init: RequestInit = {},
+  ): Promise<unknown> {
     const response = await this.#fetch(`https://api.github.com${path}`, {
       ...init,
+      cache: "no-store",
       signal: init.signal ?? AbortSignal.timeout(15_000),
       headers: {
         accept: "application/vnd.github+json",
@@ -205,9 +571,13 @@ export class GitHubAppClient {
         ...init.headers,
       },
     });
-    const payload = await readJson(response);
+    const payload: unknown = await response.json().catch(() => ({}));
     if (!response.ok)
-      throw githubError("GitHub API request failed", response, payload);
+      throw githubError(
+        "GitHub API request failed",
+        response,
+        asRecord(payload),
+      );
     return payload;
   }
 }

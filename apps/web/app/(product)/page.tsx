@@ -1,7 +1,10 @@
-import { requireIdentity } from "@/lib/auth";
+import { currentIdentity, requireIdentity } from "@/lib/auth";
+import { LandingPage } from "./landing-page";
+import { RepositorySync } from "./repository-sync";
 import { getSelectableCodexModels } from "@/lib/codex-models";
 import { listTasks } from "@/lib/task-data";
-import { db, eq, repositories } from "@nimbus/database";
+import { sessionPresentation } from "@/lib/session-presentation";
+import { listAvailableRepositories } from "@/lib/available-repositories";
 import {
   ArrowRight,
   CheckCircle2,
@@ -13,11 +16,21 @@ import {
   GitPullRequest,
   LoaderCircle,
   MessageSquareText,
-  Play,
   ShieldCheck,
-  TerminalSquare,
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { ModelPicker } from "./model-picker";
+import { RepositoryPicker } from "./repository-picker";
+import { TaskLaunchButton, TaskLaunchForm } from "./task-launch-form";
+import { SkillPrompt } from "./skill-prompt";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Cloud coding workspace",
+  description:
+    "Launch verified coding tasks in Nimbus, powered by your connected Codex account.",
+};
 
 const activeStates = new Set([
   "queued",
@@ -30,97 +43,66 @@ const activeStates = new Set([
 ]);
 
 export default async function DashboardPage() {
-  const identity = await requireIdentity();
+  const publicIdentity = await currentIdentity();
+  if (!publicIdentity) return <LandingPage />;
+  const identity = publicIdentity ?? (await requireIdentity());
+  if (identity.authProvider === "google" && !identity.onboardingCompletedAt)
+    redirect("/onboarding");
   const [allTasks, repos, models] = await Promise.all([
     listTasks(identity.organizationId),
-    db()
-      .select()
-      .from(repositories)
-      .where(eq(repositories.organizationId, identity.organizationId)),
-    getSelectableCodexModels(identity.userId),
+    listAvailableRepositories(identity.organizationId),
+    getSelectableCodexModels(identity.userId, identity.organizationId),
   ]);
   const active = allTasks.filter((task) => activeStates.has(task.status));
   const delivered = allTasks.filter(
     (task) => task.status === "pr_open" || task.status === "completed",
   );
-  const isLiveCodex = process.env.NIMBUS_CODING_PROVIDER === "codex";
+  const visibleRepositories = repos;
+  const isLiveCodex = models.some(
+    (model) => model.id !== "fake-codex-test-provider",
+  );
 
   return (
     <main className="dashboard-page">
       <header className="dashboard-heading">
         <div>
-          <p className="overline">Mission control</p>
-          <h1>What should Nimbus ship next?</h1>
+          <p className="overline">Dashboard</p>
+          <h1>What can Nimbus help you with?</h1>
           <p>
-            Delegate an outcome. Codex investigates, implements, verifies, and
-            prepares the pull request in an isolated workspace.
+            Chat with Nimbus, or select a repository to build, investigate, and
+            verify changes in an isolated workspace.
           </p>
-        </div>
-        <div className="capacity-indicator">
-          <span className="capacity-ring">
-            {Math.max(0, 4 - active.length)}
-          </span>
-          <span>
-            <strong>agents available</strong>
-            <small>{active.length} running now</small>
-          </span>
         </div>
       </header>
 
-      <section className="launch-card" aria-labelledby="launch-title">
+      <RepositorySync />
+      <section className="launch-card" aria-label="Task composer">
         <div className="launch-accent">
           <Code2 size={19} />
         </div>
-        <form action="/api/tasks" method="post">
+        <TaskLaunchForm>
           <div className="launch-title-row">
-            <label id="launch-title" htmlFor="task-objective">
-              Start an agent run
-            </label>
             <span>{isLiveCodex ? "Autonomous mode" : "Local simulation"}</span>
           </div>
-          <textarea
+          <SkillPrompt
             id="task-objective"
+            aria-label="Task request"
             name="objective"
             required
-            minLength={10}
+            minLength={1}
             maxLength={8000}
             rows={2}
             placeholder="What should Nimbus build, fix, or investigate? Add any constraints or definition of done."
           />
-          <p className="launch-title-hint">
-            Nimbus will name the session from your request.
-          </p>
           <div className="launch-footer">
-            <label className="repo-picker">
-              <GitBranch size={15} />
-              <select name="repositoryId" required aria-label="Repository">
-                {repos.map((repo) => (
-                  <option value={repo.id} key={repo.id}>
-                    {repo.fullName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="repo-picker">
-              <CircleDot size={15} />
-              <select name="model" required aria-label="Codex model">
-                {models.length ? (
-                  models.map((model) => (
-                    <option value={model.id} key={model.id}>
-                      {model.label}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">Connect ChatGPT to load models</option>
-                )}
-              </select>
-            </label>
+            <RepositoryPicker repositories={visibleRepositories} />
+            <ModelPicker initialModels={models} />
             <div className="launch-capabilities">
               <span>
-                <TerminalSquare size={14} /> Tools enabled
+                <MessageSquareText size={14} /> General chat
               </span>
               <span>
-                <ShieldCheck size={14} /> Isolated workspace
+                <ShieldCheck size={14} /> Repo work stays isolated
               </span>
             </div>
             <input
@@ -128,21 +110,15 @@ export default async function DashboardPage() {
               name="idempotencyKey"
               value={`dashboard-${crypto.randomUUID()}`}
             />
-            <button
-              type="submit"
-              className="launch-button"
-              disabled={!models.length}
-            >
-              <Play size={14} fill="currentColor" /> Run agent
-            </button>
+            <TaskLaunchButton />
           </div>
-        </form>
+        </TaskLaunchForm>
       </section>
 
       <section className="run-section">
         <div className="section-heading">
           <div>
-            <h2>Agent runs</h2>
+            <h2>Recent History</h2>
             <p>Live and recent work across your repositories</p>
           </div>
           <Link href="/tasks">
@@ -236,6 +212,7 @@ function TaskRow({
   task: Awaited<ReturnType<typeof listTasks>>[number];
 }) {
   const isActive = activeStates.has(task.status);
+  const session = sessionPresentation(task.status, task.archivedAt);
   return (
     <Link className="run-row" href={`/tasks/${task.id}`}>
       <span className="run-title">
@@ -248,11 +225,11 @@ function TaskRow({
         </span>
       </span>
       <span className="run-repo">
-        <GitBranch size={13} /> {task.repository}
+        <GitBranch size={13} /> {task.repository ?? "General chat"}
       </span>
       <span>
-        <span className={`state-chip state-${task.status}`}>
-          {task.status.replaceAll("_", " ")}
+        <span className={`state-chip state-${session.state}`}>
+          {session.label}
         </span>
       </span>
       <time>{relativeTime(task.updatedAt)}</time>

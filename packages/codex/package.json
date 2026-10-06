@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./rate-limits": "./src/rate-limits.ts",
+    "./model-policy": "./src/model-policy.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="nimbus-purple" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8d79f4"/>
+      <stop offset="1" stop-color="#5c43d1"/>
+    </linearGradient>
+  </defs>
+  <rect width="24" height="24" rx="6" fill="url(#nimbus-purple)"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19.7 17.5H5.8a4.1 4.1 0 0 1-.7-8.14A6.6 6.6 0 0 1 17.5 9.7a4 4 0 0 1 2.2 7.8Z" stroke-width="2.25"/>
+    <path d="m9.5 11-2.5 2.5 2.5 2.5m5-5 2.5 2.5-2.5 2.5m-2-6-2 7" stroke-width="1.65"/>
+  </g>
+</svg>

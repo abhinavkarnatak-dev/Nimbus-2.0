@@ -1,22 +1,29 @@
 export type CodingAgentEvent =
-  | { type: "agent_message_delta"; text: string }
+  | { type: "agent_message_delta"; text: string; itemId?: string }
   | { type: "activity"; method: string; payload: unknown }
   | { type: "warning"; classification: string; message: string }
   | {
       type: "turn_completed";
       turnId: string | null;
       status: "completed" | "failed" | "interrupted" | "cancelled";
+      error?: string;
+      errorClassification?: string;
     };
 
 export interface StartThreadInput {
   workspacePath: string;
   model: string;
+  environmentId?: string;
 }
 
 export interface StartTurnInput {
   threadId: string;
+  workspacePath?: string;
+  environmentId?: string;
   prompt: string;
+  reasoningEffort?: string;
   signal?: AbortSignal;
+  onToolCall?: (tool: string, args: unknown) => Promise<unknown>;
 }
 
 export interface CodingAgentModel {
@@ -24,6 +31,11 @@ export interface CodingAgentModel {
   displayName?: string;
   description?: string;
   isDefault?: boolean;
+  defaultReasoningEffort?: string;
+  supportedReasoningEfforts?: Array<{
+    reasoningEffort: string;
+    description: string;
+  }>;
 }
 
 export interface CodingAgentProvider {

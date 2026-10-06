@@ -53,7 +53,7 @@ export class FakeCodingAgentProvider implements CodingAgentProvider {
     };
     yield {
       type: "agent_message_delta",
-      text: "I inspected the assigned repository and selected a focused implementation path.",
+      text: "Local simulation received this message. No repository edits or verification commands were executed.",
     };
     yield {
       type: "activity",

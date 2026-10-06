@@ -4,6 +4,7 @@ export type ParsedLine =
 
 export class NdjsonParser {
   #buffer = "";
+  readonly #decoder = new TextDecoder();
   readonly #maxLineChars: number;
 
   constructor(maxLineChars = 2_000_000) {
@@ -14,7 +15,7 @@ export class NdjsonParser {
     this.#buffer +=
       typeof chunk === "string"
         ? chunk
-        : new TextDecoder().decode(chunk, { stream: true });
+        : this.#decoder.decode(chunk, { stream: true });
     if (
       this.#buffer.length > this.#maxLineChars &&
       !this.#buffer.includes("\n")
@@ -35,12 +36,20 @@ export class NdjsonParser {
   }
 
   finish(): ParsedLine[] {
-    const final = this.#buffer;
+    const final = this.#buffer + this.#decoder.decode();
     this.#buffer = "";
     return final.trim() === "" ? [] : this.#parse(final);
   }
 
   #parse(line: string): ParsedLine[] {
+    if (line.length > this.#maxLineChars)
+      return [
+        {
+          kind: "invalid",
+          line: line.slice(0, 2000),
+          error: "NDJSON line exceeded the configured size limit",
+        },
+      ];
     if (line.trim() === "") return [];
     try {
       const value: unknown = JSON.parse(line);

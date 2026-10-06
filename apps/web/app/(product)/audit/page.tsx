@@ -1,5 +1,12 @@
 import { auditLogs, db, desc, eq } from "@nimbus/database";
 import { requireIdentity } from "@/lib/auth";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Audit log",
+  description:
+    "Review security-relevant Nimbus workspace activity and actions.",
+};
 
 export default async function AuditPage() {
   const identity = await requireIdentity();

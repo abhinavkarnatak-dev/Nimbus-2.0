@@ -22,6 +22,69 @@
       "when": 1791250000000,
       "tag": "0002_github_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791251000000,
+      "tag": "0003_persistent_conversations",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791252000000,
+      "tag": "0004_task_reasoning_effort",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791253000000,
+      "tag": "0005_connection_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791261000000,
+      "tag": "0006_stable_session_titles",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791270000000,
+      "tag": "0007_session_pr_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791275000000,
+      "tag": "0008_agent_instructions",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791280000000,
+      "tag": "0009_general_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791281300000,
+      "tag": "0010_request_cancellation",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791284000000,
+      "tag": "0011_chat_skills",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,20 @@ import { describe, expect, it } from "vitest";
 import { NdjsonParser } from "./ndjson.js";
 
 describe("NdjsonParser", () => {
+  it("preserves UTF-8 characters split across byte chunks", () => {
+    const parser = new NdjsonParser();
+    const bytes = new TextEncoder().encode('{"text":"नमस्ते"}\n');
+    const result = [
+      ...parser.push(bytes.slice(0, 11)),
+      ...parser.push(bytes.slice(11)),
+    ];
+    expect(result).toEqual([{ kind: "message", value: { text: "नमस्ते" } }]);
+  });
+  it("rejects oversized messages even when a newline is present", () => {
+    expect(new NdjsonParser(10).push('{"text":"too long"}\n')[0]?.kind).toBe(
+      "invalid",
+    );
+  });
   it("reassembles partial lines and returns multiple messages", () => {
     const parser = new NdjsonParser();
     expect(parser.push('{"jsonrpc":"2.0","id":')).toEqual([]);

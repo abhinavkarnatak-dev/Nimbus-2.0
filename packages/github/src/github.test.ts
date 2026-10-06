@@ -22,6 +22,433 @@ const config = {
 };
 
 describe("GitHub App security primitives", () => {
+  it("reads fresh merged state for a verified session PR and rejects another branch", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        ...pr,
+        state: "closed",
+        merged_at: "2026-10-06T00:00:00Z",
+      }),
+    );
+    const client = new GitHubAppClient(config, fetchMock);
+    await expect(
+      client.sessionPullRequestState(
+        "token",
+        "test-owner",
+        "test-repo",
+        16,
+        "nimbus/task_test",
+        "main",
+      ),
+    ).resolves.toMatchObject({ state: "merged", headSha: sha });
+    await expect(
+      client.sessionPullRequestState(
+        "token",
+        "test-owner",
+        "test-repo",
+        16,
+        "other",
+        "main",
+      ),
+    ).rejects.toThrow("does not belong");
+  });
+  it("fetches the real PR title, line totals and file paths for the published commit", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          ...pr,
+          title: "Add greeting",
+          additions: 2,
+          deletions: 1,
+          changed_files: 1,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json([{ filename: "hello.py", additions: 2, deletions: 1 }]),
+      );
+    const result = await new GitHubAppClient(
+      config,
+      fetchMock,
+    ).pullRequestSummary(
+      "token",
+      "test-owner",
+      "test-repo",
+      16,
+      "nimbus/task_test",
+      "main",
+      sha,
+    );
+    expect(result).toMatchObject({
+      title: "Add greeting",
+      additions: 2,
+      deletions: 1,
+      changedFiles: 1,
+      files: [{ path: "hello.py", additions: 2, deletions: 1 }],
+    });
+  });
+  it("waits for GitHub to confirm an updated PR head without writing again", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json(pr))
+        .mockResolvedValueOnce(
+          Response.json({ ...pr, head: { ...pr.head, sha: "b".repeat(40) } }),
+        );
+      const pending = new GitHubAppClient(
+        config,
+        fetchMock,
+      ).confirmPullRequestHead(
+        "token",
+        "test-owner",
+        "test-repo",
+        16,
+        "nimbus/task_test",
+        "main",
+        "b".repeat(40),
+      );
+      await vi.runAllTimersAsync();
+      await pending;
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        fetchMock.mock.calls.every(
+          (call) => !call[1]?.method || call[1]?.method === "GET",
+        ),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("reads all feedback kinds with pagination and preserves inline context", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+      const path = String(url);
+      if (!path.includes("?")) return Response.json(pr);
+      if (
+        path.includes("issues/16/comments") &&
+        new URL(path).searchParams.get("page") === "1"
+      )
+        return Response.json(
+          Array.from({ length: 100 }, (_, id) => ({
+            id,
+            body: "Discussion",
+            user: { login: "reviewer" },
+          })),
+        );
+      if (new URL(path).searchParams.get("page") === "2")
+        return Response.json([{ id: 101, body: "Last comment" }]);
+      if (path.includes("pulls/16/comments"))
+        return Response.json([
+          {
+            id: 201,
+            body: "Fix this",
+            path: "hello.py",
+            line: 2,
+            diff_hunk: "@@ -1 +1 @@",
+            user: { login: "reviewer" },
+          },
+        ]);
+      return Response.json([
+        { id: 301, body: "Please revise", state: "CHANGES_REQUESTED" },
+      ]);
+    });
+    const result = await new GitHubAppClient(
+      config,
+      fetchMock,
+    ).readPullRequestFeedback(
+      "token",
+      "test-owner",
+      "test-repo",
+      16,
+      "nimbus/task_test",
+      "main",
+    );
+    expect(result.comments).toHaveLength(101);
+    expect(result.reviewComments[0]).toMatchObject({
+      path: "hello.py",
+      line: 2,
+      diffHunk: "@@ -1 +1 @@",
+    });
+    expect(result.reviews[0]).toMatchObject({ state: "CHANGES_REQUESTED" });
+  });
+  it("rejects feedback from another session branch before reading comments", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(pr));
+    await expect(
+      new GitHubAppClient(config, fetchMock).readPullRequestFeedback(
+        "token",
+        "test-owner",
+        "test-repo",
+        16,
+        "other",
+        "main",
+      ),
+    ).rejects.toThrow("does not belong");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("fails closed on malformed feedback lists", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (url) =>
+        Response.json(String(url).includes("?") ? { error: "not a list" } : pr),
+      );
+    await expect(
+      new GitHubAppClient(config, fetchMock).readPullRequestFeedback(
+        "token",
+        "test-owner",
+        "test-repo",
+        16,
+        "nimbus/task_test",
+        "main",
+      ),
+    ).rejects.toThrow("Invalid GitHub feedback response");
+  });
+  const sha = "a".repeat(40);
+  const pr = {
+    state: "open",
+    merged_at: null,
+    head: {
+      ref: "nimbus/task_test",
+      sha,
+      repo: { full_name: "test-owner/test-repo" },
+    },
+    base: { ref: "main" },
+  };
+  it("closes a verified session PR without merging", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(pr))
+      .mockResolvedValueOnce(Response.json({ state: "closed" }));
+    await expect(
+      new GitHubAppClient(config, fetchMock).managePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        14,
+        {
+          action: "close",
+          branch: "nimbus/task_test",
+          base: "main",
+          expectedHeadSha: sha,
+        },
+      ),
+    ).resolves.toEqual({ state: "closed" });
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({ state: "closed" }),
+    });
+  });
+  it("merges only the reviewed head SHA with the selected merge strategy", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(pr))
+      .mockResolvedValueOnce(Response.json({ merged: true }));
+    await expect(
+      new GitHubAppClient(config, fetchMock).managePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        14,
+        {
+          action: "merge",
+          branch: "nimbus/task_test",
+          base: "main",
+          expectedHeadSha: sha,
+          mergeMethod: "squash",
+        },
+      ),
+    ).resolves.toEqual({ state: "merged" });
+    expect(fetchMock.mock.calls[1]).toEqual([
+      "https://api.github.com/repos/test-owner/test-repo/pulls/14/merge",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ sha, merge_method: "squash" }),
+      }),
+    ]);
+  });
+  it("rejects a changed head before attempting merge", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(pr));
+    await expect(
+      new GitHubAppClient(config, fetchMock).managePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        14,
+        {
+          action: "merge",
+          branch: "nimbus/task_test",
+          base: "main",
+          expectedHeadSha: "b".repeat(40),
+        },
+      ),
+    ).rejects.toThrow("changed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("respects GitHub branch protection failures rather than claiming a merge", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(pr))
+      .mockResolvedValueOnce(
+        Response.json(
+          { message: "Required checks have not passed" },
+          { status: 405 },
+        ),
+      );
+    await expect(
+      new GitHubAppClient(config, fetchMock).managePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        14,
+        {
+          action: "merge",
+          branch: "nimbus/task_test",
+          base: "main",
+          expectedHeadSha: sha,
+        },
+      ),
+    ).rejects.toThrow("Required checks");
+  });
+  it("denies actions on another branch", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json(pr));
+    await expect(
+      new GitHubAppClient(config, fetchMock).managePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        14,
+        {
+          action: "close",
+          branch: "nimbus/other",
+          base: "main",
+          expectedHeadSha: sha,
+        },
+      ),
+    ).rejects.toThrow("session's branch");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("recovers merge retries after a lost successful response without a second write", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        ...pr,
+        state: "closed",
+        merged_at: "2026-10-06T05:00:00Z",
+      }),
+    );
+    await expect(
+      new GitHubAppClient(config, fetchMock).managePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        14,
+        {
+          action: "merge",
+          branch: "nimbus/task_test",
+          base: "main",
+          expectedHeadSha: sha,
+        },
+      ),
+    ).resolves.toEqual({ state: "merged" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("creates PRs with the installation token, without GitHub CLI", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(
+        Response.json({
+          number: 14,
+          html_url: "https://github.com/test-owner/test-repo/pull/14",
+          state: "open",
+          head: { sha: "abc" },
+        }),
+      );
+    const client = new GitHubAppClient(config, fetchMock);
+    const input = {
+      head: "nimbus/task_test",
+      base: "main",
+      title: "Organize files",
+      body: "Summary",
+    };
+    await expect(
+      client.ensurePullRequest(
+        "installation-token",
+        "test-owner",
+        "test-repo",
+        input,
+      ),
+    ).resolves.toMatchObject({ number: 14, headSha: "abc" });
+    expect(fetchMock.mock.calls[1]).toEqual([
+      "https://api.github.com/repos/test-owner/test-repo/pulls",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: expect.objectContaining({
+          authorization: "Bearer installation-token",
+        }),
+      }),
+    ]);
+  });
+  it("recovers a previously created PR instead of creating a duplicate", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json([
+        {
+          number: 14,
+          html_url: "https://github.com/test-owner/test-repo/pull/14",
+          state: "open",
+          head: { ref: "nimbus/task_test", sha: "abc" },
+          base: { ref: "main" },
+        },
+      ]),
+    );
+    await expect(
+      new GitHubAppClient(config, fetchMock).ensurePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        { head: "nimbus/task_test", base: "main", title: "Organize", body: "" },
+      ),
+    ).resolves.toMatchObject({ number: 14 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("does not turn a malformed PR listing into permission to create another PR", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ message: "bad listing" }));
+    await expect(
+      new GitHubAppClient(config, fetchMock).ensurePullRequest(
+        "token",
+        "test-owner",
+        "test-repo",
+        { head: "nimbus/task_test", base: "main", title: "Organize", body: "" },
+      ),
+    ).rejects.toThrow("listing");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("rejects malformed repository snapshots rather than interpreting them as revoked access", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token: "short-lived-test",
+            expires_at: "2026-10-07T00:00:00Z",
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "invalid listing" })),
+      );
+    const client = new GitHubAppClient(config, fetchMock);
+    await expect(client.listInstallationRepositories(123)).rejects.toThrow(
+      "listing was malformed",
+    );
+  });
   it("rejects an installation that is absent from the user's authorized list", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
