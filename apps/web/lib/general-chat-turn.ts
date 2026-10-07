@@ -14,11 +14,14 @@ import {
   sessionTitlePrompt,
   presentSessionTurn,
   withAgentInstructions,
-  withSelectedSkills,
 } from "@nimbus/shared";
 import { connectedDeviceProvider } from "./codex-device";
 import type { CodexAppServerProvider } from "@nimbus/codex";
 import { requestStopSignal } from "./request-stop-signal";
+import {
+  prepareAutomaticSkills,
+  SKILL_TOOL_THREAD_VERSION,
+} from "./automatic-skills";
 
 // Called only after the private executor key and claimed task have been verified.
 export async function generalChatOperation(
@@ -53,7 +56,7 @@ export async function generalChatOperation(
         workspaceId: null,
         providerThreadId: threadId,
         model: task.requestedModel,
-        providerConfigVersion: 3,
+        providerConfigVersion: SKILL_TOOL_THREAD_VERSION,
       });
     return NextResponse.json({ threadId });
   }
@@ -95,31 +98,39 @@ export async function generalChatOperation(
     task.organizationId,
     message.userId,
   );
+  const skills = await prepareAutomaticSkills(
+    task.organizationId,
+    message.userId,
+    message.selectedSkills,
+    thread.providerConfigVersion >= SKILL_TOOL_THREAD_VERSION,
+  );
   active.add(accountKey);
   const stop = requestStopSignal(message.id, request.signal);
   const iterator = presentSessionTurn(
-    provider.runTurn({
-      threadId: thread.providerThreadId,
-      prompt: withAgentInstructions(
-        withSelectedSkills(
-          [
-            "For downloadable file requests in this chat, do not require a sandbox. Return the complete content in a fenced code block whose language identifies the requested file: csv for Excel-compatible spreadsheets, pdf for PDFs, doc for Word-compatible documents, md or txt for text documents, and the actual language for source files. Nimbus will provide a download button for these blocks.",
-            sessionTitlePrompt(
-              message.content,
-              task.title,
-              Boolean(task.titleGeneratedAt),
-              "chat",
-            ),
-          ].join("\n\n"),
-          message.selectedSkills,
+    skills.present(
+      provider.runTurn({
+        threadId: thread.providerThreadId,
+        prompt: withAgentInstructions(
+          skills.prompt(
+            [
+              "For downloadable file requests in this chat, do not require a sandbox. Return the complete content in a fenced code block whose language identifies the requested file: csv for Excel-compatible spreadsheets, pdf for PDFs, doc for Word-compatible documents, md or txt for text documents, and the actual language for source files. Nimbus will provide a download button for these blocks.",
+              sessionTitlePrompt(
+                message.content,
+                task.title,
+                Boolean(task.titleGeneratedAt),
+                "chat",
+              ),
+            ].join("\n\n"),
+          ),
+          instructions,
         ),
-        instructions,
-      ),
-      ...(task.requestedReasoningEffort
-        ? { reasoningEffort: task.requestedReasoningEffort }
-        : {}),
-      signal: stop.signal,
-    }),
+        ...(task.requestedReasoningEffort
+          ? { reasoningEffort: task.requestedReasoningEffort }
+          : {}),
+        signal: stop.signal,
+        onSkillCall: skills.onSkillCall,
+      }),
+    ),
     !task.titleGeneratedAt,
     (title) =>
       persistGeneratedTaskTitle(task.id, task.organizationId, title).catch(() =>

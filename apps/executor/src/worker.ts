@@ -310,15 +310,11 @@ export class TaskWorker {
             .from(workspaces)
             .where(eq(workspaces.taskId, task.id))
         : [];
-      if (repositoryMode)
+      if (repositoryMode && !existingWorkspace)
         await event(
           "provisioning",
-          existingWorkspace
-            ? "Workspace resume started"
-            : "Workspace provisioning started",
-          existingWorkspace
-            ? "The executor is reopening this session's saved workspace."
-            : "The executor began creating a task-scoped workspace.",
+          "Workspace provisioning started",
+          "The executor began creating a task-scoped workspace.",
           "Follow-ups keep repository state isolated in the same task workspace.",
         );
       const remote = provider.kind !== "fake";
@@ -338,7 +334,14 @@ export class TaskWorker {
         throw new Error("Workspace provider mismatch");
       const remoteSession =
         remote && repositoryMode
-          ? await this.sessions!.ensure(task.id)
+          ? await this.sessions!.ensure(task.id, async () => {
+              await event(
+                "provisioning",
+                "Workspace resume started",
+                "Nimbus is waking this session from sleep mode.",
+                "Your next message continues the same conversation with saved repository changes.",
+              );
+            })
           : undefined;
       if (remoteSession) await this.sessions!.sync(task.id);
       await checkStopped();
@@ -395,7 +398,7 @@ export class TaskWorker {
         await event(
           "running",
           "Session restored",
-          "The previous sandbox expired. Saved files and branch state were restored into a new E2B sandbox.",
+          "The previous environment expired. Saved files and branch state were restored for this session.",
           "The same conversation and pull request history are retained.",
         );
       const model = task.requestedModel ?? this.#fallbackModel;
@@ -567,6 +570,15 @@ export class TaskWorker {
             text?: string;
           };
           const item = payload.item;
+          if (update.method === "nimbus/skill")
+            await event(
+              "running",
+              payload.text ?? "Using saved skill",
+              "Nimbus loaded relevant saved guidance for this request.",
+              "Skills do not grant additional tools or permissions.",
+              "succeeded",
+              "decision",
+            );
           if (update.method === "nimbus/publishing")
             await event(
               "running",
@@ -785,9 +797,9 @@ export class TaskWorker {
         await this.sessions!.scheduleIdle(task.id, () =>
           event(
             "idle",
-            "Sandbox paused",
-            "Repository changes are saved and the E2B sandbox paused after two minutes without a follow-up.",
-            "Follow-ups resume this sandbox or restore a replacement without changing the conversation.",
+            "Nimbus in sleep mode",
+            "Your session is sleeping after two minutes of inactivity. Repository changes are saved.",
+            "Send another message to wake Nimbus and continue the same conversation.",
           ),
         );
       finishRunObservability("completed");
@@ -841,9 +853,9 @@ export class TaskWorker {
             ?.scheduleIdle(task.id, () =>
               event(
                 "idle",
-                "Sandbox paused",
-                "The stopped request workspace was preserved and paused.",
-                "Future follow-ups can resume this session.",
+                "Nimbus in sleep mode",
+                "Your session is sleeping. Changes from the stopped request are saved.",
+                "Send another message to wake Nimbus and continue this session.",
               ),
             )
             .catch(() => {});

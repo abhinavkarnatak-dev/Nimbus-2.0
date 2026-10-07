@@ -24,6 +24,8 @@ export interface StartTurnInput {
   reasoningEffort?: string;
   signal?: AbortSignal;
   onToolCall?: (tool: string, args: unknown) => Promise<unknown>;
+  // Read-only saved guidance; kept separate from execution/publishing tools.
+  onSkillCall?: (args: unknown) => Promise<unknown>;
 }
 
 export interface CodingAgentModel {

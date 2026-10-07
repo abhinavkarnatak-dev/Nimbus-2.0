@@ -85,6 +85,14 @@ export function conversationEvents<T extends ConversationEvent>(
 // Only translate known system-authored copy. Never rewrite agent replies, user
 // messages, code, command output, or the persisted audit record.
 export function presentAgentEvent<T extends ConversationEvent>(event: T): T {
+  if (event.category === "lifecycle" && event.title === "Sandbox paused")
+    return {
+      ...event,
+      title: "Nimbus in sleep mode",
+      whatWasDone: "Your session is sleeping. Repository changes are saved.",
+      whyItWasDone:
+        "Send another message to wake Nimbus and continue the same conversation.",
+    };
   if (!["agent_state", "tool"].includes(event.category)) return event;
   const copy = (value: string) =>
     value === "Codex is deciding its next action."

@@ -31,6 +31,7 @@ export { persistGeneratedTaskTitle } from "./session-title.js";
 export { readAgentInstructions } from "./agent-instructions.js";
 export {
   listChatSkills,
+  listChatSkillCatalog,
   resolveChatSkills,
   ownedSkillScope,
 } from "./chat-skills.js";

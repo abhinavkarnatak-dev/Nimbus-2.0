@@ -23,7 +23,6 @@ import {
   sessionTitlePrompt,
   presentSessionTurn,
   withAgentInstructions,
-  withSelectedSkills,
 } from "@nimbus/shared";
 import { publishedTurn } from "@/lib/published-turn";
 import { readTaskPullRequestFeedback } from "@/lib/pr-feedback";
@@ -33,6 +32,10 @@ import { assertRequestedPrTarget } from "@/lib/pr-policy";
 import { remoteWorkspace } from "@/lib/remote-workspace";
 import { generalChatOperation } from "@/lib/general-chat-turn";
 import { requestStopSignal } from "@/lib/request-stop-signal";
+import {
+  prepareAutomaticSkills,
+  SKILL_TOOL_THREAD_VERSION,
+} from "@/lib/automatic-skills";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -136,7 +139,7 @@ export async function POST(
             workspaceId: workspace.id,
             providerThreadId: threadId,
             model: task.requestedModel,
-            providerConfigVersion: 2,
+            providerConfigVersion: SKILL_TOOL_THREAD_VERSION,
           });
         return NextResponse.json({ threadId });
       }
@@ -180,24 +183,32 @@ export async function POST(
         task.organizationId,
         message.userId,
       );
+      const skills = await prepareAutomaticSkills(
+        task.organizationId,
+        message.userId,
+        message.selectedSkills,
+        thread.providerConfigVersion >= SKILL_TOOL_THREAD_VERSION,
+      );
       // Remote identity is verified by environment/info; command/exec is host-only.
       active.add(accountKey);
       const stop = requestStopSignal(message.id, request.signal);
       const iterator = presentSessionTurn(
         publishedTurn(
-          (turn) => provider.runTurn(turn),
+          (turn) =>
+            skills.present(
+              provider.runTurn({ ...turn, onSkillCall: skills.onSkillCall }),
+            ),
           {
             threadId: thread.providerThreadId,
             workspacePath: root,
             environmentId: environment.environmentId,
             prompt: withAgentInstructions(
-              withSelectedSkills(
+              skills.prompt(
                 sessionTitlePrompt(
                   message.content,
                   task.title,
                   Boolean(task.titleGeneratedAt),
                 ),
-                message.selectedSkills,
               ),
               savedInstructions,
             ),

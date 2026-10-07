@@ -24,6 +24,7 @@ import { ModelPicker } from "./model-picker";
 import { RepositoryPicker } from "./repository-picker";
 import { TaskLaunchButton, TaskLaunchForm } from "./task-launch-form";
 import { SkillPrompt } from "./skill-prompt";
+import { RunStateIcon } from "./run-state-icon";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -212,14 +213,11 @@ function TaskRow({
 }: {
   task: Awaited<ReturnType<typeof listTasks>>[number];
 }) {
-  const isActive = activeStates.has(task.status);
   const session = sessionPresentation(task.status, task.archivedAt);
   return (
     <Link className="run-row" href={`/tasks/${task.id}`}>
       <span className="run-title">
-        <span className={`run-icon ${isActive ? "active" : ""}`}>
-          {isActive ? <LoaderCircle size={15} /> : <CheckCircle2 size={15} />}
-        </span>
+        <RunStateIcon status={task.status} archivedAt={task.archivedAt} />
         <span>
           <strong>{task.title}</strong>
           <small>{task.objective}</small>

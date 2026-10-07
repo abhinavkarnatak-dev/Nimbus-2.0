@@ -12,6 +12,10 @@ const transport = vi.hoisted(() => ({
   exitCode: 0,
   toolCall: false,
   toolName: "nimbus_create_pull_request",
+  toolArgs: { title: "Organize files", body: "Summary" } as Record<
+    string,
+    unknown
+  >,
   wrongThread: false,
   wrongEnvironment: false,
 }));
@@ -76,7 +80,7 @@ vi.mock("node:child_process", () => ({
                         turnId: "turn-test",
                         callId: "call-test",
                         tool: transport.toolName,
-                        arguments: { title: "Organize files", body: "Summary" },
+                        arguments: transport.toolArgs,
                       },
                     }) + "\n",
                   );
@@ -116,6 +120,7 @@ afterEach(() => {
   transport.exitCode = 0;
   transport.toolCall = false;
   transport.toolName = "nimbus_create_pull_request";
+  transport.toolArgs = { title: "Organize files", body: "Summary" };
   transport.wrongThread = false;
   transport.wrongEnvironment = false;
 });
@@ -193,7 +198,7 @@ describe("Codex execution contract", () => {
       (r) => r.method === "thread/start",
     )!.params;
     expect(start).toMatchObject({
-      dynamicTools: [],
+      dynamicTools: [expect.objectContaining({ name: "nimbus_load_skill" })],
       sandbox: "read-only",
       config: {
         "features.shell_tool": false,
@@ -224,6 +229,71 @@ describe("Codex execution contract", () => {
         /* consume */
       }
     }).rejects.toThrow("General chat cannot acquire");
+    await provider.stop();
+  });
+  it("allows only read-only skill loading in general chat and preserves it on resume", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_load_skill";
+    transport.toolArgs = { id: "frontend" };
+    const provider = create();
+    await provider.start();
+    const id = await provider.startChatThread("test-model");
+    await provider.resumeChatThread(id);
+    const handler = vi.fn().mockResolvedValue({ summary: "Accessible UI" });
+    for await (const _ of provider.runTurn({
+      threadId: id,
+      prompt: "Build UI",
+      onSkillCall: handler,
+    })) {
+      /* consume */
+    }
+    expect(handler).toHaveBeenCalledExactlyOnceWith({ id: "frontend" });
+    expect(
+      transport.requests.find((r) => r.method === "thread/resume")?.params,
+    ).not.toHaveProperty("dynamicTools");
+    expect(
+      transport.requests.find((r) => String(r.id) === "tool-request"),
+    ).toMatchObject({ result: { success: true } });
+    await provider.stop();
+  });
+  it("does not let the skill handler grant PR tools to general chat", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_create_pull_request";
+    const provider = create();
+    await provider.start();
+    const id = await provider.startChatThread("test-model");
+    const handler = vi.fn();
+    for await (const _ of provider.runTurn({
+      threadId: id,
+      prompt: "Build UI",
+      onSkillCall: handler,
+    })) {
+      /* consume */
+    }
+    expect(handler).not.toHaveBeenCalled();
+    expect(
+      transport.requests.find((r) => String(r.id) === "tool-request"),
+    ).toMatchObject({ result: { success: false } });
+    await provider.stop();
+  });
+  it("rejects skill calls from a different thread", async () => {
+    transport.toolCall = true;
+    transport.wrongThread = true;
+    transport.toolName = "nimbus_load_skill";
+    const provider = create();
+    await provider.start();
+    const handler = vi.fn();
+    for await (const _ of provider.runTurn({
+      threadId: "thread-test",
+      prompt: "Build UI",
+      onSkillCall: handler,
+    })) {
+      /* consume */
+    }
+    expect(handler).not.toHaveBeenCalled();
+    expect(
+      transport.requests.find((r) => String(r.id) === "tool-request"),
+    ).toMatchObject({ result: { success: false } });
     await provider.stop();
   });
   it("pins remote execution on new and resumed threads, without a host command probe", async () => {

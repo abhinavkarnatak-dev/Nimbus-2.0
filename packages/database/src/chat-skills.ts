@@ -25,6 +25,21 @@ export async function listChatSkills(
     .where(ownedSkillScope(organizationId, userId))
     .orderBy(asc(skills.name));
 }
+// Do not fetch every instruction body merely to advertise available skills.
+export async function listChatSkillCatalog(
+  organizationId: string,
+  userId: string,
+) {
+  return db()
+    .select({
+      id: skills.id,
+      name: skills.name,
+      description: skills.description,
+    })
+    .from(skills)
+    .where(ownedSkillScope(organizationId, userId))
+    .orderBy(asc(skills.name));
+}
 export async function resolveChatSkills(
   organizationId: string,
   userId: string,

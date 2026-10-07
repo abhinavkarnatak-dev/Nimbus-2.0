@@ -788,7 +788,20 @@ select:focus-visible {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.run-icon.active svg {
+.run-icon.failed {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.run-icon.cancelling {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+.run-icon.neutral {
+  background: var(--panel-subtle);
+  color: var(--muted);
+}
+.run-icon.active svg,
+.run-icon.cancelling svg {
   animation: spin 2.2s linear infinite;
 }
 @keyframes spin {
@@ -1142,7 +1155,7 @@ select:focus-visible {
   grid-template-columns: 25px 1fr;
   gap: 8px;
   padding: 14px 0;
-  border-bottom: 1px solid #f0f1f3;
+  border-bottom: 0;
 }
 .message-avatar {
   width: 23px;

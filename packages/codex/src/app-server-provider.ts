@@ -22,6 +22,17 @@ interface QueuedEvent {
 }
 
 const TERMINAL = new Set(["completed", "failed", "interrupted", "cancelled"]);
+const skillTool = {
+  name: "nimbus_load_skill",
+  description:
+    "Load a relevant saved user skill by id from the current request's catalog. Read-only guidance, not additional permissions. Load before applying it.",
+  inputSchema: {
+    type: "object",
+    properties: { id: { type: "string" } },
+    required: ["id"],
+    additionalProperties: false,
+  },
+};
 // Thread-scoped only: repository sessions keep their existing execution tools.
 const chatOnlyConfig = {
   "features.shell_tool": false,
@@ -66,6 +77,7 @@ export class CodexAppServerProvider implements CodingAgentProvider {
   readonly #remoteEnvironments = new Set<string>();
   readonly #remoteThreads = new Set<string>();
   readonly #chatThreads = new Set<string>();
+  #skillHandler: StartTurnInput["onSkillCall"];
 
   get hasActiveTurn() {
     return this.#activeThreadId !== undefined;
@@ -84,7 +96,7 @@ export class CodexAppServerProvider implements CodingAgentProvider {
         environments: [],
         runtimeWorkspaceRoots: [],
         selectedCapabilityRoots: [],
-        dynamicTools: [],
+        dynamicTools: [skillTool],
         approvalPolicy: "never",
         sandbox: "read-only",
         baseInstructions:
@@ -109,7 +121,6 @@ export class CodexAppServerProvider implements CodingAgentProvider {
         threadId,
         environments: [],
         runtimeWorkspaceRoots: [],
-        dynamicTools: [],
         approvalPolicy: "never",
         sandbox: "read-only",
         config: chatOnlyConfig,
@@ -205,6 +216,7 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     this.#remoteThreads.clear();
     this.#chatThreads.clear();
     this.#activeThreadId = undefined;
+    this.#skillHandler = undefined;
     this.#process = spawn(
       /*turbopackIgnore: true*/
       this.#options.codexExecutable ?? "codex",
@@ -364,6 +376,7 @@ export class CodexAppServerProvider implements CodingAgentProvider {
         approvalPolicy: "never",
         sandbox: input.environmentId ? "danger-full-access" : "workspace-write",
         dynamicTools: [
+          skillTool,
           {
             name: "nimbus_read_pull_request",
             description:
@@ -507,6 +520,12 @@ export class CodexAppServerProvider implements CodingAgentProvider {
       throw new Error("Codex turn was cancelled before start");
     this.#activeThreadId = input.threadId;
     this.#options.onToolCall = input.onToolCall;
+    this.#skillHandler = input.onSkillCall
+      ? async (args) => {
+          input.signal?.throwIfAborted();
+          return input.onSkillCall!(args);
+        }
+      : undefined;
     this.#events = [];
     const result = asRecord(
       await this.#request("turn/start", {
@@ -545,6 +564,7 @@ export class CodexAppServerProvider implements CodingAgentProvider {
       }).catch((error: unknown) => {
         this.#activeThreadId = undefined;
         this.#options.onToolCall = undefined;
+        this.#skillHandler = undefined;
         throw error;
       }),
     );
@@ -579,6 +599,7 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     } finally {
       this.#activeThreadId = undefined;
       this.#options.onToolCall = undefined;
+      this.#skillHandler = undefined;
       input.signal?.removeEventListener("abort", abort);
       if (startedTurnId && !finished)
         await this.interruptTurn(input.threadId, startedTurnId).catch(() => {});
@@ -645,7 +666,12 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     const params = asRecord(line.value.params);
     if (id !== undefined && typeof line.value.method === "string") {
       if (method === "item/tool/call") {
-        const handler = this.#options.onToolCall;
+        const skillCall = params.tool === "nimbus_load_skill";
+        const handler = skillCall
+          ? this.#skillHandler
+          : this.#chatThreads.has(String(params.threadId))
+            ? undefined
+            : this.#options.onToolCall;
         const execute = async () => {
           try {
             if (
@@ -655,11 +681,19 @@ export class CodexAppServerProvider implements CodingAgentProvider {
                 "nimbus_create_pull_request",
                 "nimbus_manage_pull_request",
                 "nimbus_read_pull_request",
+                "nimbus_load_skill",
               ].includes(params.tool) ||
               !handler
             )
               throw new Error("Publishing tool is unavailable for this turn");
-            const result = await handler(params.tool, params.arguments);
+            const result = skillCall
+              ? await (handler as NonNullable<StartTurnInput["onSkillCall"]>)(
+                  params.arguments,
+                )
+              : await (handler as NonNullable<StartTurnInput["onToolCall"]>)(
+                  params.tool,
+                  params.arguments,
+                );
             this.#write({
               id,
               result: {

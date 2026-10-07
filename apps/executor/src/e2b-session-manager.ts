@@ -248,7 +248,7 @@ export class E2BSessionManager {
         { mode: file.executable ? 0o755 : 0o644 },
       );
   }
-  async ensure(taskId: string) {
+  async ensure(taskId: string, onPausedResume?: () => Promise<void>) {
     this.cancelIdle(taskId);
     return this.locked(taskId, async () => {
       const [task] = await db()
@@ -315,6 +315,7 @@ export class E2BSessionManager {
         return { ...old, url: old.bridge.url, restored: false };
       }
       if (record?.provider === "e2b") {
+        if (record.status === "paused") await onPausedResume?.();
         try {
           workspace = await this.provider.resume(
             record.providerWorkspaceId,
