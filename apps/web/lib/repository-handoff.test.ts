@@ -18,6 +18,7 @@ vi.mock("./repository-browser", () => ({
 vi.mock("@nimbus/database", async (original) => {
   const actual = await original<object>();
   const connection = {
+    execute: async () => fixture.rows.shift() ?? [],
     select: () => ({
       from: () => ({
         where: () => {
@@ -55,6 +56,9 @@ import {
   queueRepositoryHandoff,
   replaceConversationThread,
   repositoryHandoffPrompt,
+  conversationHandoffContext,
+  serializeConversationContext,
+  recoveredConversationContext,
 } from "./repository-handoff";
 const task = {
   id: "task",
@@ -92,6 +96,65 @@ beforeEach(() => {
   ];
 });
 describe("durable repository handoff", () => {
+  it("keeps the full numbered suggestion before a short follow-up", async () => {
+    fixture.rows = [
+      [
+        {
+          category: "agent_message",
+          text: `1. Fix uniqueness reporting\n${"explanation ".repeat(900)}\n2. Improve scanning`,
+        },
+        {
+          category: "conversation",
+          text: "implement the fix 1 and create a pr",
+        },
+      ],
+    ];
+    const context = await conversationHandoffContext("task");
+    expect(context).toContain("1. Fix uniqueness reporting");
+    expect(context).toContain("implement the fix 1 and create a pr");
+    expect(JSON.parse(context)).toHaveLength(2);
+  });
+  it("bounds history using whole messages and valid JSON, not a trailing string slice", () => {
+    const result = serializeConversationContext([
+      { category: "agent_message", text: "old".repeat(10000) },
+      {
+        category: "agent_message",
+        text: "1. Fix uniqueness\n" + "detail".repeat(4000),
+      },
+      { category: "conversation", text: "implement fix 1" },
+    ]);
+    expect(result.length).toBeLessThanOrEqual(32000);
+    expect(JSON.parse(result)).toHaveLength(2);
+    expect(result).toContain("1. Fix uniqueness");
+  });
+  it("keeps a numbered recommendation and follow-up when escaped content fills the budget", () => {
+    const result = serializeConversationContext([
+      {
+        category: "agent_message",
+        text: "1. Fix uniqueness\n" + "\u0000".repeat(24000),
+      },
+      { category: "conversation", text: "implement the fix 1 and create a pr" },
+    ]);
+    expect(result.length).toBeLessThanOrEqual(32000);
+    expect(JSON.parse(result)).toHaveLength(2);
+    expect(result).toContain("1. Fix uniqueness");
+    expect(result).toContain("implement the fix 1 and create a pr");
+  });
+  it("retrieves recovery context only for the matching replacement thread", async () => {
+    fixture.rows = [
+      [
+        {
+          payload: {
+            context: "1. Fix uniqueness",
+            replacementProviderThreadId: "replacement",
+          },
+        },
+      ],
+    ];
+    expect(await recoveredConversationContext("task", "replacement")).toBe(
+      "1. Fix uniqueness",
+    );
+  });
   it("queues one idempotent continuation without duplicating the visible user message", async () => {
     await queueRepositoryHandoff(task, message, "repo");
     expect(

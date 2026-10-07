@@ -91,8 +91,11 @@ export class LocalConnectedCodexProvider implements CodingAgentProvider {
     };
     return result.threadId;
   }
-  async resumeThread(threadId: string): Promise<void> {
-    await this.#request("thread/resume", { threadId });
+  async resumeThread(threadId: string): Promise<void | string> {
+    const result = (await this.#request("thread/resume", { threadId })) as {
+      threadId?: string;
+    };
+    return result.threadId;
   }
   async interruptTurn(threadId: string, turnId: string): Promise<void> {
     await this.#request("turn/interrupt", { threadId, turnId });

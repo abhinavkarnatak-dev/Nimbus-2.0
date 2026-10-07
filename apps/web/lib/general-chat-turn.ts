@@ -17,6 +17,7 @@ import {
 } from "@nimbus/shared";
 import { connectedDeviceProvider } from "./codex-device";
 import type { CodexAppServerProvider } from "@nimbus/codex";
+import { ChatThreadResumeError } from "@nimbus/codex";
 import { requestStopSignal } from "./request-stop-signal";
 import {
   prepareAutomaticSkills,
@@ -27,6 +28,7 @@ import {
   conversationHandoffContext,
   REPOSITORY_CHAT_VERSION,
   replaceConversationThread,
+  recoveredConversationContext,
 } from "./repository-handoff";
 
 // Called only after the private executor key and claimed task have been verified.
@@ -76,8 +78,34 @@ export async function generalChatOperation(
       { status: 403 },
     );
   if (input.operation === "thread/resume") {
-    await provider.resumeChatThread(thread.providerThreadId);
-    return NextResponse.json({ resumed: true });
+    if (active.has(accountKey))
+      return NextResponse.json(
+        { error: "This account already has an active Codex turn" },
+        { status: 409 },
+      );
+    try {
+      await provider.resumeChatThread(thread.providerThreadId);
+    } catch (error) {
+      if (!(error instanceof ChatThreadResumeError)) throw error;
+      request.signal.throwIfAborted();
+      const context = await conversationHandoffContext(task.id);
+      const replacementId = await provider.startChatThread(
+        thread.model ?? task.requestedModel!,
+      );
+      request.signal.throwIfAborted();
+      await replaceConversationThread(
+        thread,
+        replacementId,
+        null,
+        REPOSITORY_CHAT_VERSION,
+        context,
+      );
+      return NextResponse.json({ resumed: true, threadId: replacementId });
+    }
+    return NextResponse.json({
+      resumed: true,
+      threadId: thread.providerThreadId,
+    });
   }
   if (input.operation === "turn/interrupt" && input.turnId) {
     await provider.interruptTurn(thread.providerThreadId, input.turnId);
@@ -100,7 +128,10 @@ export async function generalChatOperation(
       and(eq(taskMessages.taskId, task.id), eq(taskMessages.status, "running")),
     );
   if (!message) throw new Error("Chat has no claimed user message");
-  let handoffContext = "";
+  let handoffContext = await recoveredConversationContext(
+    task.id,
+    thread.providerThreadId,
+  );
   if (thread.providerConfigVersion < REPOSITORY_CHAT_VERSION) {
     // Existing read-only threads cannot add dynamic tools on resume in the
     // pinned runtime. Replace only the active provider slot, retaining history.

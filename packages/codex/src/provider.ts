@@ -48,7 +48,8 @@ export interface CodingAgentProvider {
   stop(): Promise<void>;
   listModels(): Promise<readonly CodingAgentModel[]>;
   startThread(input: StartThreadInput): Promise<string>;
-  resumeThread(threadId: string): Promise<void>;
+  // A provider can safely replace an unavailable thread before starting a turn.
+  resumeThread(threadId: string): Promise<void | string>;
   runTurn(input: StartTurnInput): AsyncIterable<CodingAgentEvent>;
   interruptTurn(threadId: string, turnId: string): Promise<void>;
 }

@@ -18,6 +18,7 @@ const transport = vi.hoisted(() => ({
   >,
   wrongThread: false,
   wrongEnvironment: false,
+  omitResumedEnvironments: false,
 }));
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => {
@@ -44,9 +45,13 @@ vi.mock("node:child_process", () => ({
                 ? {
                     thread: {
                       id: "thread-test",
-                      environments: transport.wrongEnvironment
-                        ? [{ environmentId: "unexpected-host" }]
-                        : (request.params.environments ?? []),
+                      environments:
+                        request.method === "thread/resume" &&
+                        transport.omitResumedEnvironments
+                          ? undefined
+                          : transport.wrongEnvironment
+                            ? [{ environmentId: "unexpected-host" }]
+                            : (request.params.environments ?? []),
                     },
                   }
                 : request.method === "environment/info"
@@ -112,7 +117,10 @@ vi.mock("node:child_process", () => ({
   }),
 }));
 
-import { CodexAppServerProvider } from "./app-server-provider.js";
+import {
+  ChatThreadResumeError,
+  CodexAppServerProvider,
+} from "./app-server-provider.js";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -123,6 +131,7 @@ afterEach(() => {
   transport.toolArgs = { title: "Organize files", body: "Summary" };
   transport.wrongThread = false;
   transport.wrongEnvironment = false;
+  transport.omitResumedEnvironments = false;
 });
 const create = () =>
   new CodexAppServerProvider({
@@ -131,6 +140,26 @@ const create = () =>
   });
 
 describe("Codex execution contract", () => {
+  it("classifies an unconfirmed resume after a process restart without enabling a turn", async () => {
+    const provider = create();
+    await provider.start();
+    const id = await provider.startChatThread("test-model");
+    await provider.stop();
+    await provider.start();
+    transport.omitResumedEnvironments = true;
+    await expect(provider.resumeChatThread(id)).rejects.toBeInstanceOf(
+      ChatThreadResumeError,
+    );
+    expect(
+      transport.requests.some((request) => request.method === "turn/start"),
+    ).toBe(false);
+    // A newly-created chat still has to pass the original isolation checks.
+    transport.wrongEnvironment = true;
+    await expect(provider.startChatThread("test-model")).rejects.toThrow(
+      "isolation was not confirmed",
+    );
+    await provider.stop();
+  });
   it("fails closed for server device login unless explicitly enabled and persistent", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NIMBUS_DEVICE_AUTH_ENABLED", "false");

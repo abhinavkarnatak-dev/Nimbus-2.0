@@ -31,6 +31,7 @@ describe("explicit repository execution authorization", () => {
     "Refactor that codebase",
     "I want to work on AdaptSense",
     "Make changes in that repo",
+    "implement the fix 1 and create a pr",
   ])("accepts an explicit request: %s", (text) => {
     expect(requestsRepositoryExecution(text)).toBe(true);
   });

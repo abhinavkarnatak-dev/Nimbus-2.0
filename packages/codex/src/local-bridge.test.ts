@@ -15,6 +15,18 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 describe("local Codex execution bridge", () => {
+  it("returns a safely replaced thread id to the executor on resume", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ resumed: true, threadId: "replacement" }),
+        ),
+    );
+    const provider = new LocalConnectedCodexProvider("task", ".");
+    expect(await provider.resumeThread("original")).toBe("replacement");
+  });
   it("requires a shared server credential in production instead of a local key file", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NIMBUS_EXECUTOR_SECRET", "");

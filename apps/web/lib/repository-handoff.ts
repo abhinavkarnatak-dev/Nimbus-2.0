@@ -12,25 +12,79 @@ import {
   taskEvents,
   taskMessages,
   tasks,
+  sql,
 } from "@nimbus/database";
 import { accessibleRepository } from "./repository-browser";
 import { requestsRepositoryExecution } from "./repository-intent";
 
 export const REPOSITORY_CHAT_VERSION = 6;
+export function serializeConversationContext(
+  rows: Array<{ category: string; text: string }>,
+) {
+  const selected: typeof rows = [];
+  // Preserve the beginnings of long replies (including numbered suggestions),
+  // then remove old whole messages rather than cutting through JSON or deltas.
+  for (const row of rows) {
+    const bounded = {
+      ...row,
+      text:
+        row.text.length > 24_000
+          ? `${row.text.slice(0, 23_950)}\n[Earlier reply truncated]`
+          : row.text,
+    };
+    while (JSON.stringify(bounded).length > 24_000)
+      bounded.text = `${bounded.text.slice(0, Math.floor(bounded.text.length * 0.8))}\n[Earlier reply truncated]`;
+    selected.push(bounded);
+    while (JSON.stringify(selected).length > 32_000 && selected.length > 2)
+      selected.shift();
+    if (JSON.stringify(selected).length > 32_000) {
+      // Keep the most recent user request AND the preceding suggestion even
+      // when escaping or a large reply fills the budget.
+      const oldest = selected[0]!;
+      const original = oldest.text;
+      let low = 0,
+        high = original.length;
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        oldest.text = `${original.slice(0, mid)}\n[Earlier reply truncated]`;
+        if (JSON.stringify(selected).length <= 32_000) low = mid;
+        else high = mid - 1;
+      }
+      oldest.text = `${original.slice(0, low)}\n[Earlier reply truncated]`;
+    }
+  }
+  return JSON.stringify(selected);
+}
 export async function conversationHandoffContext(taskId: string) {
-  const rows = await db()
-    .select({ category: taskEvents.category, text: taskEvents.whatWasDone })
-    .from(taskEvents)
-    .where(eq(taskEvents.taskId, taskId))
-    .orderBy(desc(taskEvents.sequence))
-    .limit(80);
-  return JSON.stringify(
-    rows
-      .reverse()
-      .filter((row) =>
-        ["conversation", "agent_message"].includes(row.category),
-      ),
-  ).slice(-32_000);
+  // Aggregate streaming deltas into complete recent turns in PostgreSQL. The
+  // task-scoped cutoff bounds the query without letting protocol events consume
+  // the history budget. Twelve user turns cover short references such as fix 1.
+  const rows = await db().execute<{ category: string; text: string }>(sql`
+    WITH recent_turns AS (
+      SELECT sequence FROM ${taskEvents}
+      WHERE task_id = ${taskId} AND category = 'conversation'
+      ORDER BY sequence DESC LIMIT 12
+    ), cutoff AS (
+      SELECT CASE WHEN COUNT(*) < 12 THEN 0 ELSE MIN(sequence) END AS sequence FROM recent_turns
+    ), source AS (
+      SELECT 0 AS sequence, 'conversation' AS category, objective AS what_was_done
+      FROM ${tasks} WHERE id = ${taskId} AND (SELECT sequence FROM cutoff) = 0
+      UNION ALL
+      SELECT sequence, category, what_was_done FROM ${taskEvents}
+      WHERE task_id = ${taskId}
+        AND category IN ('conversation', 'agent_message')
+        AND sequence >= (SELECT sequence FROM cutoff)
+    ), conversation AS (
+      SELECT sequence, category, what_was_done,
+        SUM(CASE WHEN category = 'conversation' THEN 1 ELSE 0 END)
+          OVER (ORDER BY sequence) AS turn_number
+      FROM source
+    )
+    SELECT category, LEFT(STRING_AGG(what_was_done, '' ORDER BY sequence), 24000) AS text
+    FROM conversation GROUP BY turn_number, category
+    ORDER BY MIN(sequence)
+  `);
+  return serializeConversationContext(Array.from(rows));
 }
 export async function queueRepositoryHandoff(
   task: typeof tasks.$inferSelect,
@@ -157,6 +211,7 @@ export async function replaceConversationThread(
   providerThreadId: string,
   workspaceId: string | null,
   version: number,
+  context?: string,
 ) {
   await db().transaction(async (tx) => {
     const [current] = await tx
@@ -167,13 +222,19 @@ export async function replaceConversationThread(
     if (!current || current.providerThreadId !== thread.providerThreadId)
       throw new Error("Conversation thread changed; retry the request");
     await tx.insert(taskCheckpoints).values({
-      id: `checkpoint_${randomUUID()}`,
+      id:
+        context !== undefined
+          ? `checkpoint_chat_recovery_${thread.taskId}_${providerThreadId}`
+          : `checkpoint_${randomUUID()}`,
       taskId: thread.taskId,
       kind: "retired_codex_thread",
       payload: {
         providerThreadId: thread.providerThreadId,
         workspaceId: thread.workspaceId,
         version: thread.providerConfigVersion,
+        ...(context !== undefined
+          ? { context, replacementProviderThreadId: providerThreadId }
+          : {}),
       },
       eventSequence: thread.lastProcessedEventSequence,
     });
@@ -188,6 +249,29 @@ export async function replaceConversationThread(
       })
       .where(eq(codexThreads.id, thread.id));
   });
+}
+export async function recoveredConversationContext(
+  taskId: string,
+  threadId: string,
+) {
+  const [checkpoint] = await db()
+    .select()
+    .from(taskCheckpoints)
+    .where(
+      and(
+        eq(taskCheckpoints.taskId, taskId),
+        eq(
+          taskCheckpoints.id,
+          `checkpoint_chat_recovery_${taskId}_${threadId}`,
+        ),
+        eq(taskCheckpoints.kind, "retired_codex_thread"),
+        sql`${taskCheckpoints.payload}->>'replacementProviderThreadId' = ${threadId}`,
+      ),
+    )
+    .orderBy(desc(taskCheckpoints.createdAt))
+    .limit(1);
+  const payload = checkpoint?.payload as { context?: unknown } | undefined;
+  return typeof payload?.context === "string" ? payload.context : "";
 }
 export async function repositoryHandoffPrompt(taskId: string, content: string) {
   const [checkpoint] = await db()

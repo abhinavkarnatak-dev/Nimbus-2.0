@@ -434,13 +434,14 @@ export class TaskWorker {
         repositoryMode && !storedThread?.workspaceId ? undefined : storedThread;
       if (existingThread && existingThread.model !== model)
         throw new Error("Thread model mismatch");
-      const threadId =
+      let threadId =
         existingThread?.providerThreadId ??
         (await provider.startThread({
           workspacePath: workspace.root,
           model,
         }));
-      if (existingThread) await provider.resumeThread(threadId);
+      if (existingThread)
+        threadId = (await provider.resumeThread(threadId)) ?? threadId;
       await checkStopped();
       const [createdThread] = existingThread
         ? []

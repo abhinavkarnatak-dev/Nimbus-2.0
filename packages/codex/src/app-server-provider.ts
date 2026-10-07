@@ -17,6 +17,12 @@ interface PendingRequest {
   timer: NodeJS.Timeout;
 }
 
+// A fresh, verified read-only chat is a safe fallback for an unavailable or
+// unconfirmed saved chat. Never use this to retry an already-started turn.
+export class ChatThreadResumeError extends Error {
+  override name = "ChatThreadResumeError";
+}
+
 interface QueuedEvent {
   value: CodingAgentEvent;
 }
@@ -154,23 +160,37 @@ export class CodexAppServerProvider implements CodingAgentProvider {
   }
 
   async resumeChatThread(threadId: string): Promise<void> {
-    const result = asRecord(
-      await this.#request("thread/resume", {
-        threadId,
-        environments: [],
-        runtimeWorkspaceRoots: [],
-        approvalPolicy: "never",
-        sandbox: "read-only",
-        config: chatOnlyConfig,
-      }),
-    );
+    let result: Record<string, unknown>;
+    try {
+      result = asRecord(
+        await this.#request("thread/resume", {
+          threadId,
+          environments: [],
+          runtimeWorkspaceRoots: [],
+          approvalPolicy: "never",
+          sandbox: "read-only",
+          config: chatOnlyConfig,
+        }),
+      );
+    } catch (error) {
+      // Recovery is allowed only before a turn starts, not for authentication,
+      // transport failures, or partially executed turns.
+      if (
+        error instanceof Error &&
+        /(?:thread|rollout).*(?:not found|does not exist|missing|cannot find|could not (?:find|load))|(?:no rollout|failed to load thread)/i.test(
+          error.message,
+        )
+      )
+        throw new ChatThreadResumeError(error.message);
+      throw error;
+    }
     const thread = asRecord(result.thread);
     if (
       thread.id !== threadId ||
       !Array.isArray(thread.environments) ||
       thread.environments.length !== 0
     )
-      throw new Error(
+      throw new ChatThreadResumeError(
         "Resumed chat-only environment isolation was not confirmed",
       );
     this.#chatThreads.add(threadId);
