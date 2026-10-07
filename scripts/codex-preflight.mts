@@ -29,6 +29,10 @@ try {
   await provider.start();
   assert.equal(await provider.readDeviceAccount(), null);
   assert.equal(provider.isRunning, true);
+  await provider.stop();
+  assert.equal(provider.isRunning, false);
+  await provider.start();
+  assert.equal(await provider.readDeviceAccount(), null);
   console.log(
     "Codex preflight passed: initialize, isolated file store, unauthenticated account read. No login or model request made.",
   );
@@ -39,5 +43,10 @@ try {
     !basename(home).startsWith("nimbus-codex-preflight-")
   )
     throw new Error("Invalid temporary cleanup target");
-  await rm(home, { recursive: true, force: true });
+  await rm(home, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
 }

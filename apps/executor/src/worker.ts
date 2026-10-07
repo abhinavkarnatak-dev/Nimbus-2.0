@@ -74,7 +74,11 @@ export class TaskWorker {
         ),
       2_000,
     );
-    await this.tick();
+    // A transient database outage must not bring down the combined web/CLI
+    // service and discard ephemeral user logins. The interval retries safely.
+    await this.tick().catch(() =>
+      console.error("Executor initial polling failed; retrying on next tick"),
+    );
   }
 
   async stop(): Promise<void> {

@@ -5,6 +5,8 @@ const workspaceRoot = resolve(process.cwd(), "../..");
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Leave RAM for the worker and active native Codex process on small hosts.
+  cacheMaxMemorySize: 5 * 1024 * 1024,
   // The PostHog project token is intentionally public and is required by the
   // browser SDK for Web Analytics and Session Replay. Allow local/deployment
   // setups that already provide the server-side project-token variable to

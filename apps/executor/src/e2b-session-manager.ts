@@ -15,11 +15,24 @@ import { startE2BExecBridge } from "./e2b-exec-bridge.js";
 import type { WorkspaceHandle } from "./workspace-provider.js";
 import { SandboxNotFoundError } from "e2b";
 import { IdlePauseScheduler, SANDBOX_IDLE_PAUSE_MS } from "./idle-pause.js";
+import { authorizeRepository } from "./repository-authorization.js";
 
 export interface SavedFile {
   path: string;
   data: string;
   executable: boolean;
+}
+async function readCheckpoint(path: string): Promise<SavedFile[] | undefined> {
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+    return undefined;
+  });
+  if (!info) return undefined;
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 36_000_000)
+    throw new Error(
+      "Saved checkpoint exceeds the low-memory restore limit or is unsafe",
+    );
+  return validateSavedFiles(JSON.parse(await readFile(path, "utf8")).files);
 }
 export function validateSavedFiles(value: unknown): SavedFile[] {
   if (!Array.isArray(value) || value.length > 10000)
@@ -52,15 +65,11 @@ export function validateSavedFiles(value: unknown): SavedFile[] {
     const key = item.path.toLowerCase();
     if (seen.has(key)) throw new Error("Checkpoint path collision");
     seen.add(key);
-    if (
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-        item.data,
-      )
-    )
+    if (item.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(item.data))
       throw new Error("Invalid checkpoint encoding");
     const size = Buffer.byteLength(item.data, "base64");
     bytes += size;
-    if (size > 50_000_000 || bytes > 256_000_000)
+    if (size > 8_000_000 || bytes > 24_000_000)
       throw new Error("Checkpoint exceeds byte limit");
   }
   return value;
@@ -76,6 +85,12 @@ export function supervisorGit(root: string, args: string[]): Promise<string> {
         `core.hooksPath=${process.platform === "win32" ? "NUL" : "/dev/null"}`,
         "-c",
         "core.fsmonitor=false",
+        "-c",
+        "pack.threads=1",
+        "-c",
+        "pack.windowMemory=8m",
+        "-c",
+        "pack.deltaCacheSize=8m",
         ...args,
       ],
       {
@@ -100,7 +115,7 @@ export function supervisorGit(root: string, args: string[]): Promise<string> {
       if (out.length > 16_000_000) child.kill();
     });
     child.stderr.on("data", (chunk) => {
-      error += chunk;
+      error = (error + chunk).slice(-4096);
     });
     child.on("error", reject);
     child.on("close", (code) => {
@@ -127,10 +142,10 @@ for directory,dirs,names in os.walk(root,followlinks=False):
   if name.lower().endswith(('.pem','.key','.p12','.pfx')) or name=='.nimbus-restore.bundle': continue
   s=os.lstat(p)
   if not stat.S_ISREG(s.st_mode): raise Exception('Non-regular workspace file cannot be checkpointed')
-  if s.st_size>50000000: raise Exception('Checkpoint file exceeds limit')
-  with open(p,'rb') as f: data=f.read(50000001)
+  if s.st_size>8000000: raise Exception('Checkpoint file exceeds limit')
+  with open(p,'rb') as f: data=f.read(8000001)
   total+=len(data)
-  if total>256000000 or len(files)>=10000: raise Exception('Checkpoint exceeds limit')
+  if total>24000000 or len(files)>=10000: raise Exception('Checkpoint exceeds limit')
   files.append({'path':rel,'data':base64.b64encode(data).decode(),'executable':bool(s.st_mode&0o111)})
 print(json.dumps(files,separators=(',',':')))
 `;
@@ -149,7 +164,9 @@ export class E2BSessionManager {
   readonly #locks = new Map<string, Promise<unknown>>();
   readonly #idlePauses = new IdlePauseScheduler();
   constructor(readonly repositoryRoot: string) {
-    this.provider = new E2BWorkspaceProvider();
+    this.provider = new E2BWorkspaceProvider(undefined, (repository, taskId) =>
+      authorizeRepository(repositoryRoot, taskId, repository),
+    );
   }
   async locked<T>(taskId: string, action: () => Promise<T>): Promise<T> {
     const prior = this.#locks.get(taskId) ?? Promise.resolve();
@@ -205,14 +222,14 @@ export class E2BSessionManager {
     validateSavedFiles(files);
     const root = this.root(taskId);
     const prior = await supervisorGit(root, ["ls-files", "-z"]);
-    const previous = await readFile(this.checkpoint(taskId), "utf8").then(
-      (v) => validateSavedFiles(JSON.parse(v).files),
-      () => [],
-    );
+    const previous =
+      (await readCheckpoint(this.checkpoint(taskId)))?.map(
+        (file) => file.path,
+      ) ?? [];
     const keep = new Set(files.map((f) => f.path));
     for (const path of new Set([
       ...prior.split("\0").filter(Boolean),
-      ...previous.map((f) => f.path),
+      ...previous,
     ])) {
       // Apply only explicitly bounded task file deletions; never recursively delete directories.
       if (!keep.has(path)) {
@@ -268,10 +285,7 @@ export class E2BSessionManager {
       const url = `https://github.com/${repo.owner}/${repo.name}.git`;
       if (!exists) {
         // Public clone only. No dependency installation or repository execution on this machine.
-        const { verifyPublicRepository } = await import(
-          "./e2b-workspace-provider.js"
-        );
-        await verifyPublicRepository({
+        await authorizeRepository(this.repositoryRoot, task.id, {
           owner: repo.owner,
           name: repo.name,
           baseRef: task.baseRef,
@@ -323,10 +337,7 @@ export class E2BSessionManager {
           name: repo.name,
           baseRef: task.baseRef,
         });
-        const saved = await readFile(this.checkpoint(taskId), "utf8").then(
-          (v) => validateSavedFiles(JSON.parse(v).files),
-          () => undefined,
-        );
+        const saved = await readCheckpoint(this.checkpoint(taskId));
         if (restored && !saved) {
           await this.provider.destroy(workspace);
           throw new Error(
@@ -397,6 +408,10 @@ export class E2BSessionManager {
       if (e.code !== "ENOENT") throw e;
     });
     await supervisorGit(root, ["bundle", "create", bundle, "--all"]);
+    if ((await lstat(bundle)).size > 24_000_000)
+      throw new Error(
+        "Repository restore bundle exceeds the low-memory runtime limit (24 MB)",
+      );
     await this.provider.writeFile(
       workspace,
       ".nimbus-restore.bundle",
@@ -447,7 +462,7 @@ export class E2BSessionManager {
     )
       .split("\0")
       .filter(Boolean);
-    const files: SavedFile[] = [];
+    let totalBytes = 0;
     for (const path of paths) {
       validateSavedFiles([{ path, data: "", executable: false }]);
       const target = await this.safeTarget(root, path);
@@ -463,19 +478,11 @@ export class E2BSessionManager {
       }
       if (!info.isFile())
         throw new Error("Saved repository contains a non-regular file");
-      files.push({
-        path,
-        data: (await readFile(target)).toString("base64"),
-        executable: Boolean(info.mode & 0o111),
-      });
+      totalBytes += info.size;
+      if (info.size > 8_000_000 || totalBytes > 24_000_000)
+        throw new Error("Repository files exceed the low-memory restore limit");
+      await this.provider.writeFile(workspace, path, await readFile(target));
     }
-    validateSavedFiles(files);
-    for (const file of files)
-      await this.provider.writeFile(
-        workspace,
-        file.path,
-        Buffer.from(file.data, "base64"),
-      );
     await run(["rm", "-f", ".nimbus-restore.bundle"]);
   }
   async sync(taskId: string) {

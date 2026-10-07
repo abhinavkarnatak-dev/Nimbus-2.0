@@ -3,9 +3,15 @@ import { mkdir, access, chmod } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runtimeConfiguration } from "./runtime-config.mjs";
+import { readContainerMemory } from "./runtime-memory.mjs";
+import { nativeCodexExecutable } from "./codex-executable.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const config = runtimeConfiguration(process.env, root);
+config.executable =
+  process.env.CODEX_EXECUTABLE ??
+  nativeCodexExecutable(root, config.executable);
+config.webEnvironment.CODEX_EXECUTABLE = config.executable;
 if (config.storageMode === "ephemeral")
   console.warn(
     "TEMPORARY STORAGE: service restarts/spin-downs can lose Codex connections, thread files, checkpoints, and downloads. Users will need to reconnect.",
@@ -29,11 +35,20 @@ if (!process.env.E2B_API_KEY?.trim())
   );
 
 const children = [];
+const memoryTimer = setInterval(() => {
+  void readContainerMemory()
+    .then((memory) => {
+      if (memory) console.log("Nimbus container memory", memory);
+    })
+    .catch(() => {});
+}, 30_000);
+memoryTimer.unref();
 let stopping = false;
 let exitCode = 0;
 async function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
+  clearInterval(memoryTimer);
   exitCode = code;
   process.exitCode = code;
   for (const child of children)
@@ -126,7 +141,7 @@ if (!ready) await shutdown(1);
 else
   launch(
     "Executor",
-    ["--import", "tsx", "src/index.ts"],
+    ["dist/index.mjs"],
     resolve(root, "apps/executor"),
     config.executorEnvironment,
   );

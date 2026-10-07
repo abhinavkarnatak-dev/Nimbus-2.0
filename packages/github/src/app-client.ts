@@ -172,6 +172,34 @@ export class GitHubAppClient {
     return { token, expiresAt };
   }
 
+  async verifyPublicRepository(
+    token: string,
+    owner: string,
+    name: string,
+    expectedId: number,
+  ) {
+    if (
+      ![owner, name].every((value) => /^[a-zA-Z0-9_.-]+$/.test(value)) ||
+      !Number.isSafeInteger(expectedId) ||
+      expectedId < 1
+    )
+      throw new Error("Invalid GitHub repository identity");
+    const value = await this.#api(`/repos/${owner}/${name}`, token);
+    if (
+      value.id !== expectedId ||
+      String(value.full_name).toLowerCase() !== `${owner}/${name}`.toLowerCase()
+    )
+      throw new Error(
+        "Repository identity changed. Refresh repositories before retrying.",
+      );
+    if (value.private !== false || value.visibility !== "public")
+      throw new Error(
+        "This repository is private. Only public repository sandboxes are currently supported.",
+      );
+    if (value.archived === true)
+      throw new Error("This GitHub repository is archived.");
+  }
+
   async listInstallationRepositories(
     installationId: number,
   ): Promise<GitHubRepository[]> {
@@ -561,6 +589,7 @@ export class GitHubAppClient {
     const response = await this.#fetch(`https://api.github.com${path}`, {
       ...init,
       cache: "no-store",
+      redirect: "error",
       signal: init.signal ?? AbortSignal.timeout(15_000),
       headers: {
         accept: "application/vnd.github+json",
@@ -606,13 +635,40 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
   return asRecord(value);
 }
 
+export class GitHubApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly rateLimitRemaining: string | null,
+    readonly rateLimitReset: string | null,
+  ) {
+    super(
+      status === 429 || (status === 403 && rateLimitRemaining === "0")
+        ? `GitHub rate limit reached (HTTP ${status}). Retry after the quota resets.`
+        : status === 401 || status === 403
+          ? `GitHub App access was rejected (HTTP ${status}). Check installation permissions.`
+          : status === 404
+            ? "GitHub repository or installation is unavailable (HTTP 404). Check the GitHub App's selected repositories."
+            : status === 405 || status === 409
+              ? `GitHub blocked this action (HTTP ${status}). Required checks, branch protection, or a changed head may prevent it.`
+              : `GitHub API request failed (HTTP ${status}). Retry shortly.`,
+    );
+    this.name = "GitHubApiError";
+  }
+}
+
 function githubError(
   message: string,
   response: Response,
   payload: Record<string, unknown>,
 ): Error {
-  const detail = stringField(payload, "message") ?? "No response message";
-  return new Error(`${message} (${response.status}): ${detail}`);
+  // Never surface raw provider response bodies or credentials in task errors/logs.
+  void message;
+  void payload;
+  return new GitHubApiError(
+    response.status,
+    response.headers.get("x-ratelimit-remaining"),
+    response.headers.get("x-ratelimit-reset"),
+  );
 }
 
 function parseInstallation(value: Record<string, unknown>): GitHubInstallation {

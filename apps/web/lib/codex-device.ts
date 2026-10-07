@@ -20,12 +20,19 @@ interface Connection {
   models?: readonly CodingAgentModel[];
   modelsFetchedAt?: number;
   timeout?: NodeJS.Timeout;
+  idleTimeout?: NodeJS.Timeout;
+  lastUsedAt?: number;
+  leases?: number;
+  limits?:
+    | Awaited<ReturnType<CodexAppServerProvider["readRateLimits"]>>
+    | undefined;
 }
 
 const registry = globalThis as typeof globalThis & {
   nimbusDeviceConnections?: Map<string, Connection>;
   nimbusDeviceOperations?: Map<string, Promise<unknown>>;
   nimbusDeviceInitializations?: Set<string>;
+  nimbusDeviceProcessQueue?: Promise<void>;
 };
 const connections = (registry.nimbusDeviceConnections ??= new Map());
 const operations = (registry.nimbusDeviceOperations ??= new Map());
@@ -49,8 +56,8 @@ async function exclusive<T>(
   }
 }
 
-export async function connectedDeviceProvider(key: string) {
-  const state = await deviceConnection(key);
+export async function connectedDeviceProvider(key: string, wake = true) {
+  const state = await exclusive(key, () => readConnection(key, false, wake));
   const connection = connections.get(key);
   if (state.status !== "connected" || !connection)
     throw new Error(
@@ -64,6 +71,166 @@ export async function connectedDeviceProvider(key: string) {
       "The execution adapter was updated. Disconnect and reconnect Codex once in Settings > Connections.",
     );
   return connection.provider;
+}
+
+// Usage polls never launch a CLI. Return the last snapshot when idle.
+export async function deviceUsageProvider(key: string) {
+  await connectedDeviceProvider(key, false);
+  const connection = connections.get(key)!;
+  return {
+    readRateLimits: () =>
+      exclusive(key, async () => {
+        if (connection.provider.isRunning)
+          connection.limits = await connection.provider.readRateLimits();
+        if (!connection.limits)
+          throw new DeviceConnectionError(
+            "Account limits will refresh when Codex is active",
+          );
+        return connection.limits;
+      }),
+  };
+}
+
+function busy(connection: Connection) {
+  return Boolean(
+    connection.leases ||
+      connection.provider.hasActiveTurn ||
+      connection.provider.hasPendingRequests ||
+      connection.status === "pending",
+  );
+}
+
+async function suspend(connection: Connection) {
+  if (busy(connection)) return false;
+  if (
+    connection.status === "connected" &&
+    !(await savedCredentials(connection.home))
+  )
+    return false;
+  await connection.provider.stop(); // No logout: auth.json and thread files remain intact.
+  return true;
+}
+
+function scheduleIdle(key: string, connection: Connection) {
+  if (connection.idleTimeout) clearTimeout(connection.idleTimeout);
+  const timeout = Number(process.env.NIMBUS_CODEX_IDLE_MS ?? "45000");
+  connection.idleTimeout = setTimeout(
+    () => {
+      void exclusive(key, async () => {
+        if (connections.get(key) !== connection) return;
+        if (busy(connection)) {
+          scheduleIdle(key, connection);
+          return;
+        }
+        await suspend(connection);
+      }).catch(() => {});
+    },
+    Number.isFinite(timeout) && timeout >= 1000 ? timeout : 45000,
+  );
+  connection.idleTimeout.unref();
+}
+
+async function startProcess(key: string, connection: Connection) {
+  const operation = (registry.nimbusDeviceProcessQueue ?? Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      const cap = Number(process.env.NIMBUS_CODEX_MAX_PROCESSES ?? "1");
+      if (!Number.isSafeInteger(cap) || cap < 1)
+        throw new DeviceConnectionError("Invalid Codex process limit");
+      let running = [...connections.values()].filter(
+        (entry) => entry !== connection && entry.provider.isRunning,
+      ).length;
+      for (const [otherKey, other] of connections) {
+        if (running < cap) break;
+        if (
+          other === connection ||
+          !other.provider.isRunning ||
+          operations.has(otherKey) ||
+          busy(other)
+        )
+          continue;
+        if (await suspend(other)) running--;
+      }
+      if (running >= cap)
+        throw new DeviceConnectionError(
+          "Codex is busy with another task or sign-in. Your saved login is unchanged; retry shortly.",
+        );
+      await connection.provider.start();
+      connection.lastUsedAt = Date.now();
+      scheduleIdle(key, connection);
+    });
+  registry.nimbusDeviceProcessQueue = operation;
+  await operation;
+}
+
+// Keep a process pinned through the entire response stream, including gaps
+// between RPC calls. Release on completion, error, or client cancellation.
+export async function withDeviceProvider(
+  key: string,
+  action: (provider: CodexAppServerProvider) => Promise<Response>,
+) {
+  const connection = await exclusive(key, async () => {
+    const state = await readConnection(key, false, true);
+    const current = connections.get(key);
+    if (state.status !== "connected" || !current)
+      throw new DeviceConnectionError("Reconnect Codex before running a task");
+    if (
+      current.provider.configurationVersion !== 4 ||
+      typeof current.provider.verifyWorkspace !== "function"
+    )
+      throw new DeviceConnectionError(
+        "Reconnect Codex after the execution adapter update",
+      );
+    current.leases = (current.leases ?? 0) + 1;
+    return current;
+  });
+  const provider = connection.provider;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    connection.leases = Math.max(0, (connection.leases ?? 1) - 1);
+    connection.lastUsedAt = Date.now();
+    scheduleIdle(key, connection);
+  };
+  try {
+    const response = await action(provider);
+    if (
+      !response.body ||
+      !response.headers.get("content-type")?.includes("application/x-ndjson")
+    ) {
+      release();
+      return response;
+    }
+    const reader = response.body.getReader();
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const next = await reader.read();
+            if (next.done) {
+              release();
+              controller.close();
+            } else controller.enqueue(next.value);
+          } catch (error) {
+            release();
+            controller.error(error);
+          }
+        },
+        async cancel(reason) {
+          try {
+            await reader.cancel(reason);
+          } finally {
+            release();
+          }
+        },
+      }),
+      { status: response.status, headers: response.headers },
+    );
+  } catch (error) {
+    release();
+    throw error;
+  }
 }
 
 // Retain the existing export for callers; hosted requests require explicit opt-in + AUTH_URL.
@@ -145,12 +312,13 @@ async function createConnection(key: string, home: string) {
       },
     });
     connections.set(key, current);
-    current.ready = current.provider.start();
+    current.ready = startProcess(key, current);
     try {
       await current.ready;
-    } catch {
+    } catch (error) {
       await current.provider.stop();
       connections.delete(key);
+      if (error instanceof DeviceConnectionError) throw error;
       throw new DeviceConnectionError(
         "Codex CLI could not start. Check the server installation and CODEX_EXECUTABLE.",
       );
@@ -165,7 +333,7 @@ export function deviceConnection(key: string, start = false) {
   return exclusive(key, () => readConnection(key, start));
 }
 
-async function readConnection(key: string, start: boolean) {
+async function readConnection(key: string, start: boolean, wake = false) {
   if (!deviceAuthEnabled()) return { status: "disconnected" as const };
   const home = deviceHome(key);
   let connection = connections.get(key);
@@ -181,17 +349,30 @@ async function readConnection(key: string, start: boolean) {
     connection = await createConnection(key, home);
   if (!connection) return { status: "disconnected" as const };
   await connection.ready;
+  // UI polling and model pickers must not restart an idle authenticated CLI.
+  if (
+    !wake &&
+    connection.status === "connected" &&
+    (await savedCredentials(home))
+  )
+    return {
+      status: "connected" as const,
+      account: connection.account,
+      models: connection.models,
+    };
   if (!connection.provider.isRunning) {
     if (connection.provider.hasActiveTurn)
       throw new DeviceConnectionError(
         "Codex is recovering from an interrupted turn. Retry shortly.",
       );
     await connection.provider.stop();
-    connection.ready = connection.provider.start();
+    connection.ready = startProcess(key, connection);
     try {
       await connection.ready;
-    } catch {
+    } catch (error) {
       await connection.provider.stop();
+      connection.ready = Promise.resolve();
+      if (error instanceof DeviceConnectionError) throw error;
       connections.delete(key);
       throw new DeviceConnectionError(
         "Codex could not restart. Check the server CLI installation.",
@@ -203,6 +384,8 @@ async function readConnection(key: string, start: boolean) {
       delete connection.login;
     }
   }
+  connection.lastUsedAt = Date.now();
+  scheduleIdle(key, connection);
   try {
     const account = await connection.provider.readDeviceAccount();
     if (account) {
@@ -211,6 +394,13 @@ async function readConnection(key: string, start: boolean) {
         await chmod(resolve(home, "auth.json"), 0o600);
       connection.account = account;
       connection.status = "connected";
+      if (
+        !connection.limits &&
+        typeof connection.provider.readRateLimits === "function"
+      )
+        connection.limits = await connection.provider
+          .readRateLimits()
+          .catch(() => undefined);
       if (connection.timeout) clearTimeout(connection.timeout);
       delete connection.login;
       delete connection.expiresAt;
@@ -252,6 +442,7 @@ async function readConnection(key: string, start: boolean) {
           .cancelDeviceLogin(current.login!.loginId)
           .catch(() => {});
         delete current.login;
+        await current.provider.stop();
       }).catch(() => {});
     }, 10 * 60_000);
     connection.timeout.unref();
@@ -274,12 +465,18 @@ async function readConnection(key: string, start: boolean) {
 export function disconnectDevice(key: string) {
   return exclusive(key, async () => {
     const connection = connections.get(key);
-    if (connection?.provider.hasActiveTurn)
+    if (
+      connection &&
+      (connection.leases ||
+        connection.provider.hasActiveTurn ||
+        connection.provider.hasPendingRequests)
+    )
       throw new DeviceConnectionError(
         "Stop your current task before disconnecting Codex.",
       );
     const home = connection?.home ?? deviceHome(key);
     if (connection) {
+      if (connection.idleTimeout) clearTimeout(connection.idleTimeout);
       if (connection.timeout) clearTimeout(connection.timeout);
       if (connection.login && connection.status === "pending")
         await connection.provider

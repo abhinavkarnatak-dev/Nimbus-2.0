@@ -22,6 +22,57 @@ const config = {
 };
 
 describe("GitHub App security primitives", () => {
+  it("authenticates public repository validation and verifies its stored identity", async () => {
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        Response.json({
+          id: 42,
+          full_name: "owner/repo",
+          private: false,
+          visibility: "public",
+        }),
+      );
+    const client = new GitHubAppClient(config, transport);
+    await client.verifyPublicRepository(
+      "scoped-installation-token",
+      "owner",
+      "repo",
+      42,
+    );
+    expect(transport.mock.calls[0][1]).toMatchObject({
+      redirect: "error",
+      headers: { authorization: "Bearer scoped-installation-token" },
+    });
+    await expect(
+      client.verifyPublicRepository("token", "owner", "repo", 99),
+    ).rejects.toThrow("identity");
+  });
+  it("rejects private repositories and distinguishes rate limits without exposing provider bodies", async () => {
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          id: 42,
+          full_name: "owner/repo",
+          private: true,
+          visibility: "private",
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { message: "private-token-secret" },
+          { status: 403, headers: { "x-ratelimit-remaining": "0" } },
+        ),
+      );
+    const client = new GitHubAppClient(config, transport);
+    await expect(
+      client.verifyPublicRepository("token", "owner", "repo", 42),
+    ).rejects.toThrow("private");
+    await expect(
+      client.verifyPublicRepository("token", "owner", "repo", 42),
+    ).rejects.toThrow("rate limit");
+  });
   it("reads fresh merged state for a verified session PR and rejects another branch", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({

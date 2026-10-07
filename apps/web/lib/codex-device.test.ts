@@ -25,19 +25,23 @@ vi.mock("node:fs/promises", () => ({
 vi.mock("@nimbus/codex", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@nimbus/codex")>()),
   CodexAppServerProvider: class {
+    running = false;
+    configurationVersion = 4;
+    verifyWorkspace() {}
     get hasActiveTurn() {
       return fixture.active;
     }
     get isRunning() {
-      return fixture.running;
+      return fixture.running && this.running;
     }
     async start() {
       await fixture.launches();
       fixture.running = true;
+      this.running = true;
     }
     async stop() {
       fixture.stop();
-      fixture.running = false;
+      this.running = false;
     }
     async logoutDevice() {
       fixture.logout();
@@ -67,6 +71,7 @@ import {
   deviceConnection,
   disconnectDevice,
   isLocalDeviceRequest,
+  withDeviceProvider,
 } from "./codex-device";
 
 afterEach(async () => {
@@ -76,11 +81,59 @@ afterEach(async () => {
   await disconnectDevice("unit-test-user");
   fixture.authorized = false;
   fixture.saved = false;
+  fixture.running = true;
   vi.clearAllMocks();
   fixture.launches.mockReset();
   vi.unstubAllEnvs();
 });
 describe("local Codex device connection", () => {
+  it("stops idle processes without logging out and does not wake them on UI polls", async () => {
+    vi.useFakeTimers();
+    fixture.saved = fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fixture.stop).toHaveBeenCalledOnce();
+    expect(fixture.logout).not.toHaveBeenCalled();
+    expect(await deviceConnection("unit-test-user")).toMatchObject({
+      status: "connected",
+    });
+    expect(fixture.launches).toHaveBeenCalledOnce();
+  });
+  it("keeps two saved accounts connected with only one running CLI", async () => {
+    vi.stubEnv("NIMBUS_CODEX_MAX_CONNECTIONS", "2");
+    fixture.saved = fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await deviceConnection("other-unit-test-user");
+    expect(fixture.stop).toHaveBeenCalledOnce();
+    expect(await deviceConnection("unit-test-user")).toMatchObject({
+      status: "connected",
+    });
+    expect(fixture.launches).toHaveBeenCalledTimes(2);
+    await disconnectDevice("other-unit-test-user");
+  });
+  it("pins a streaming task across idle deadlines and blocks eviction until cancellation", async () => {
+    vi.useFakeTimers();
+    fixture.saved = fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    const response = await withDeviceProvider(
+      "unit-test-user",
+      async () =>
+        new Response(new ReadableStream(), {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(fixture.stop).not.toHaveBeenCalled();
+    await expect(deviceConnection("other-unit-test-user")).rejects.toThrow(
+      "busy with another task",
+    );
+    await expect(disconnectDevice("unit-test-user")).rejects.toThrow(
+      "Stop your current task",
+    );
+    await response.body!.cancel();
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(fixture.logout).not.toHaveBeenCalled();
+  });
   it("does not reserve connection capacity after a CLI startup failure", async () => {
     fixture.launches.mockRejectedValueOnce(new Error("missing binary"));
     await expect(deviceConnection("unit-test-user", true)).rejects.toThrow(

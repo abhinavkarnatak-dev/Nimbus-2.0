@@ -28,6 +28,7 @@ import {
 } from "@nimbus/codex/model-policy";
 import {
   connectedDeviceProvider,
+  deviceConnection,
   isLocalDeviceRequest,
 } from "@/lib/codex-device";
 import { skillIdsSchema } from "@nimbus/shared";
@@ -129,9 +130,11 @@ export async function POST(request: Request) {
         throw new Error(
           "Codex device execution is not enabled for this origin",
         );
-      await connectedDeviceProvider(
+      const connection = await deviceConnection(
         `${identity.organizationId}:${identity.userId}`,
       );
+      if (connection.status !== "connected")
+        throw new Error("Codex is disconnected");
     } catch {
       return NextResponse.json(
         {

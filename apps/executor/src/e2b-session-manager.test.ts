@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { validateSavedFiles } from "./e2b-session-manager.js";
 describe("durable remote checkpoint validation", () => {
+  it("rejects oversized files and total checkpoints before allocating decoded copies", () => {
+    const data = Buffer.alloc(8_000_001).toString("base64");
+    expect(() =>
+      validateSavedFiles([{ path: "large.bin", data, executable: false }]),
+    ).toThrow("byte limit");
+    const small = Buffer.alloc(6_000_001).toString("base64");
+    expect(() =>
+      validateSavedFiles(
+        ["a", "b", "c", "d"].map((path) => ({
+          path,
+          data: small,
+          executable: false,
+        })),
+      ),
+    ).toThrow("byte limit");
+  });
   it("preserves arbitrary binary data and executable metadata", () => {
     const file = {
       path: "phase 2/output.bin",

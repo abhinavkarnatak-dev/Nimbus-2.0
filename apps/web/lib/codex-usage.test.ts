@@ -8,7 +8,7 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/auth", () => ({ currentIdentity: fixture.identity }));
 vi.mock("@/lib/codex-device", () => ({
-  connectedDeviceProvider: fixture.connected,
+  deviceUsageProvider: fixture.connected,
   isLocalDeviceRequest: fixture.local,
 }));
 import { GET } from "../app/api/codex/usage/route";

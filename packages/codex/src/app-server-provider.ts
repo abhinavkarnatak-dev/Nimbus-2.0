@@ -73,6 +73,9 @@ export class CodexAppServerProvider implements CodingAgentProvider {
   get isRunning() {
     return Boolean(this.#process) && !this.#fatal;
   }
+  get hasPendingRequests() {
+    return this.#pending.size > 0;
+  }
 
   async startChatThread(model: string): Promise<string> {
     const result = asRecord(

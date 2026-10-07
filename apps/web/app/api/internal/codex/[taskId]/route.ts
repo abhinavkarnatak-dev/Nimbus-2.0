@@ -18,7 +18,7 @@ import {
   tasks,
   workspaces,
 } from "@nimbus/database";
-import { connectedDeviceProvider } from "@/lib/codex-device";
+import { withDeviceProvider } from "@/lib/codex-device";
 import {
   sessionTitlePrompt,
   presentSessionTurn,
@@ -68,7 +68,11 @@ export async function POST(
     );
   if (!task.repositoryId) {
     try {
-      return await generalChatOperation(request, task, input, active);
+      return await withDeviceProvider(
+        `${task.organizationId}:${task.createdByUserId}`,
+        (provider) =>
+          generalChatOperation(request, task, input, active, provider),
+      );
     } catch (error) {
       return NextResponse.json(
         {
@@ -108,215 +112,216 @@ export async function POST(
       return NextResponse.json({ ready: true });
     }
     const accountKey = `${task.organizationId}:${task.createdByUserId}`;
-    const provider = await connectedDeviceProvider(accountKey);
-    const environment = await remoteWorkspace(task.id, "ensure");
-    await provider.registerRemoteEnvironment(environment);
-    const [thread] = await db()
-      .select()
-      .from(codexThreads)
-      .where(eq(codexThreads.taskId, task.id));
-    if (input.operation === "thread/start") {
-      if (thread)
-        return NextResponse.json({ threadId: thread.providerThreadId });
-      if (!task.requestedModel) throw new Error("Task has no selected model");
-      const threadId = await provider.startThread({
-        model: task.requestedModel,
-        environmentId: environment.environmentId,
-        workspacePath: "/workspace/repo",
-      });
-      await db()
-        .insert(codexThreads)
-        .values({
-          id: `ctx_${randomUUID().replaceAll("-", "")}`,
-          taskId: task.id,
-          workspaceId: workspace.id,
-          providerThreadId: threadId,
+    return await withDeviceProvider(accountKey, async (provider) => {
+      const environment = await remoteWorkspace(task.id, "ensure");
+      await provider.registerRemoteEnvironment(environment);
+      const [thread] = await db()
+        .select()
+        .from(codexThreads)
+        .where(eq(codexThreads.taskId, task.id));
+      if (input.operation === "thread/start") {
+        if (thread)
+          return NextResponse.json({ threadId: thread.providerThreadId });
+        if (!task.requestedModel) throw new Error("Task has no selected model");
+        const threadId = await provider.startThread({
           model: task.requestedModel,
-          providerConfigVersion: 2,
-        });
-      return NextResponse.json({ threadId });
-    }
-    if (!thread || thread.providerThreadId !== input.threadId)
-      return NextResponse.json(
-        { error: "Thread does not belong to this task" },
-        { status: 403 },
-      );
-    if (input.operation === "thread/resume") {
-      await provider.resumeThread(
-        thread.providerThreadId,
-        environment.environmentId,
-      );
-      return NextResponse.json({ resumed: true });
-    }
-    if (input.operation === "turn/interrupt" && input.turnId) {
-      await provider.interruptTurn(thread.providerThreadId, input.turnId);
-      return NextResponse.json({ interrupted: true });
-    }
-    if (input.operation !== "turn/start")
-      return NextResponse.json(
-        { error: "Unsupported operation" },
-        { status: 400 },
-      );
-    if (active.has(accountKey))
-      return NextResponse.json(
-        { error: "This account already has an active local Codex turn" },
-        { status: 409 },
-      );
-    const [message] = await db()
-      .select()
-      .from(taskMessages)
-      .where(
-        and(
-          eq(taskMessages.taskId, task.id),
-          eq(taskMessages.status, "running"),
-        ),
-      );
-    if (!message) throw new Error("Task has no claimed user message");
-    const savedInstructions = await readAgentInstructions(
-      task.organizationId,
-      message.userId,
-    );
-    // Remote identity is verified by environment/info; command/exec is host-only.
-    active.add(accountKey);
-    const stop = requestStopSignal(message.id, request.signal);
-    const iterator = presentSessionTurn(
-      publishedTurn(
-        (turn) => provider.runTurn(turn),
-        {
-          threadId: thread.providerThreadId,
-          workspacePath: root,
           environmentId: environment.environmentId,
-          prompt: withAgentInstructions(
-            withSelectedSkills(
-              sessionTitlePrompt(
-                message.content,
-                task.title,
-                Boolean(task.titleGeneratedAt),
+          workspacePath: "/workspace/repo",
+        });
+        await db()
+          .insert(codexThreads)
+          .values({
+            id: `ctx_${randomUUID().replaceAll("-", "")}`,
+            taskId: task.id,
+            workspaceId: workspace.id,
+            providerThreadId: threadId,
+            model: task.requestedModel,
+            providerConfigVersion: 2,
+          });
+        return NextResponse.json({ threadId });
+      }
+      if (!thread || thread.providerThreadId !== input.threadId)
+        return NextResponse.json(
+          { error: "Thread does not belong to this task" },
+          { status: 403 },
+        );
+      if (input.operation === "thread/resume") {
+        await provider.resumeThread(
+          thread.providerThreadId,
+          environment.environmentId,
+        );
+        return NextResponse.json({ resumed: true });
+      }
+      if (input.operation === "turn/interrupt" && input.turnId) {
+        await provider.interruptTurn(thread.providerThreadId, input.turnId);
+        return NextResponse.json({ interrupted: true });
+      }
+      if (input.operation !== "turn/start")
+        return NextResponse.json(
+          { error: "Unsupported operation" },
+          { status: 400 },
+        );
+      if (active.has(accountKey))
+        return NextResponse.json(
+          { error: "This account already has an active local Codex turn" },
+          { status: 409 },
+        );
+      const [message] = await db()
+        .select()
+        .from(taskMessages)
+        .where(
+          and(
+            eq(taskMessages.taskId, task.id),
+            eq(taskMessages.status, "running"),
+          ),
+        );
+      if (!message) throw new Error("Task has no claimed user message");
+      const savedInstructions = await readAgentInstructions(
+        task.organizationId,
+        message.userId,
+      );
+      // Remote identity is verified by environment/info; command/exec is host-only.
+      active.add(accountKey);
+      const stop = requestStopSignal(message.id, request.signal);
+      const iterator = presentSessionTurn(
+        publishedTurn(
+          (turn) => provider.runTurn(turn),
+          {
+            threadId: thread.providerThreadId,
+            workspacePath: root,
+            environmentId: environment.environmentId,
+            prompt: withAgentInstructions(
+              withSelectedSkills(
+                sessionTitlePrompt(
+                  message.content,
+                  task.title,
+                  Boolean(task.titleGeneratedAt),
+                ),
+                message.selectedSkills,
               ),
-              message.selectedSkills,
+              savedInstructions,
             ),
-            savedInstructions,
-          ),
-          ...(task.requestedReasoningEffort
-            ? { reasoningEffort: task.requestedReasoningEffort }
-            : {}),
-          signal: stop.signal,
-        },
-        message.content,
-        async (title, body) => {
-          await remoteWorkspace(task.id, "sync");
-          const result = await publishTaskPullRequest(
-            repositoryRoot,
-            task,
-            message.content,
-            title,
-            body,
-            stop.signal,
-          );
-          await remoteWorkspace(task.id, "published");
-          return result;
-        },
-        async (action, mergeMethod) => {
-          const [pr] = await db()
-            .select()
-            .from(pullRequests)
-            .where(eq(pullRequests.taskId, task.id))
-            .orderBy(desc(pullRequests.generation))
-            .limit(1);
-          if (!pr?.headSha)
-            throw new Error("Create this session's PR before managing it");
-          if (!pr.number || !pr.url)
-            throw new Error("Pull request metadata is unavailable");
-          assertRequestedPrTarget(message.content, pr.number, pr.url);
-          return manageTaskPullRequest(
-            task.organizationId,
-            task.id,
-            {
-              action,
-              expectedHeadSha: pr.headSha,
-              mergeMethod,
-              number: pr.number,
-            },
-            true,
-            stop.signal,
-          );
-        },
-        () =>
-          readTaskPullRequestFeedback(
-            task.organizationId,
-            task.id,
-            message.content,
-            stop.signal,
-          ),
-      ),
-      !task.titleGeneratedAt,
-      (title) =>
-        persistGeneratedTaskTitle(task.id, task.organizationId, title).catch(
+            ...(task.requestedReasoningEffort
+              ? { reasoningEffort: task.requestedReasoningEffort }
+              : {}),
+            signal: stop.signal,
+          },
+          message.content,
+          async (title, body) => {
+            await remoteWorkspace(task.id, "sync");
+            const result = await publishTaskPullRequest(
+              repositoryRoot,
+              task,
+              message.content,
+              title,
+              body,
+              stop.signal,
+            );
+            await remoteWorkspace(task.id, "published");
+            return result;
+          },
+          async (action, mergeMethod) => {
+            const [pr] = await db()
+              .select()
+              .from(pullRequests)
+              .where(eq(pullRequests.taskId, task.id))
+              .orderBy(desc(pullRequests.generation))
+              .limit(1);
+            if (!pr?.headSha)
+              throw new Error("Create this session's PR before managing it");
+            if (!pr.number || !pr.url)
+              throw new Error("Pull request metadata is unavailable");
+            assertRequestedPrTarget(message.content, pr.number, pr.url);
+            return manageTaskPullRequest(
+              task.organizationId,
+              task.id,
+              {
+                action,
+                expectedHeadSha: pr.headSha,
+                mergeMethod,
+                number: pr.number,
+              },
+              true,
+              stop.signal,
+            );
+          },
           () =>
-            console.warn(
-              "Session title persistence failed; retaining the previous title",
+            readTaskPullRequestFeedback(
+              task.organizationId,
+              task.id,
+              message.content,
+              stop.signal,
             ),
         ),
-    )[Symbol.asyncIterator]();
-    const encoder = new TextEncoder();
-    const body = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        try {
-          const next = await iterator.next();
-          if (!next.done) {
-            if (
-              next.value.type === "activity" &&
-              (next.value.method === "item/completed" ||
-                next.value.method === "turn/diff/updated")
-            )
-              await remoteWorkspace(task.id, "sync");
-            if (
-              next.value.type === "turn_completed" &&
-              next.value.status === "completed"
-            ) {
-              await remoteWorkspace(task.id, "sync");
-              await preserveWorkspaceArtifacts(
-                repositoryRoot,
-                task.id,
-                undefined,
-                task.baseRef,
-              ).catch(() =>
-                console.warn(
-                  "Artifact preservation failed; retry from Artifacts",
-                ),
-              );
+        !task.titleGeneratedAt,
+        (title) =>
+          persistGeneratedTaskTitle(task.id, task.organizationId, title).catch(
+            () =>
+              console.warn(
+                "Session title persistence failed; retaining the previous title",
+              ),
+          ),
+      )[Symbol.asyncIterator]();
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const next = await iterator.next();
+            if (!next.done) {
+              if (
+                next.value.type === "activity" &&
+                (next.value.method === "item/completed" ||
+                  next.value.method === "turn/diff/updated")
+              )
+                await remoteWorkspace(task.id, "sync");
+              if (
+                next.value.type === "turn_completed" &&
+                next.value.status === "completed"
+              ) {
+                await remoteWorkspace(task.id, "sync");
+                await preserveWorkspaceArtifacts(
+                  repositoryRoot,
+                  task.id,
+                  undefined,
+                  task.baseRef,
+                ).catch(() =>
+                  console.warn(
+                    "Artifact preservation failed; retry from Artifacts",
+                  ),
+                );
+              }
             }
-          }
-          if (next.done) {
+            if (next.done) {
+              stop.dispose();
+              active.delete(accountKey);
+              controller.close();
+            } else
+              controller.enqueue(
+                encoder.encode(`${JSON.stringify(next.value)}\n`),
+              );
+          } catch {
             stop.dispose();
             active.delete(accountKey);
-            controller.close();
-          } else
-            controller.enqueue(
-              encoder.encode(`${JSON.stringify(next.value)}\n`),
+            controller.error(
+              new Error(
+                "Codex execution stream failed. Reconnect Codex if the process exited.",
+              ),
             );
-        } catch {
+          }
+        },
+        async cancel() {
           stop.dispose();
           active.delete(accountKey);
-          controller.error(
-            new Error(
-              "Codex execution stream failed. Reconnect Codex if the process exited.",
-            ),
-          );
-        }
-      },
-      async cancel() {
-        stop.dispose();
-        active.delete(accountKey);
-        await iterator.return?.(undefined);
-      },
-    });
-    return new Response(body, {
-      headers: {
-        "content-type": "application/x-ndjson",
-        "cache-control": "no-store, no-transform",
-        "X-Accel-Buffering": "no",
-      },
+          await iterator.return?.(undefined);
+        },
+      });
+      return new Response(body, {
+        headers: {
+          "content-type": "application/x-ndjson",
+          "cache-control": "no-store, no-transform",
+          "X-Accel-Buffering": "no",
+        },
+      });
     });
   } catch (error) {
     return NextResponse.json(

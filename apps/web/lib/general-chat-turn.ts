@@ -17,6 +17,7 @@ import {
   withSelectedSkills,
 } from "@nimbus/shared";
 import { connectedDeviceProvider } from "./codex-device";
+import type { CodexAppServerProvider } from "@nimbus/codex";
 import { requestStopSignal } from "./request-stop-signal";
 
 // Called only after the private executor key and claimed task have been verified.
@@ -25,11 +26,13 @@ export async function generalChatOperation(
   task: typeof tasks.$inferSelect,
   input: { operation?: string; threadId?: string; turnId?: string },
   active: Set<string>,
+  leasedProvider?: CodexAppServerProvider,
 ) {
   if (task.repositoryId)
     throw new Error("General chat cannot use a repository session");
   const accountKey = `${task.organizationId}:${task.createdByUserId}`;
-  const provider = await connectedDeviceProvider(accountKey);
+  const provider =
+    leasedProvider ?? (await connectedDeviceProvider(accountKey));
   if (typeof provider.startChatThread !== "function")
     throw new Error(
       "Reconnect Codex in Connections once to load general chat support",

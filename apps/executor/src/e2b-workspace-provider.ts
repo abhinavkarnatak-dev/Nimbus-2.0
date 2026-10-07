@@ -71,7 +71,7 @@ export async function verifyPublicRepository(repository: PublicRepository) {
   );
   if (!response.ok)
     throw new Error(
-      "Public repository is unavailable; private repositories are not supported",
+      `Public GitHub repository validation failed (HTTP ${response.status}). ${response.status === 403 || response.status === 429 ? "GitHub may have rate-limited this request." : "Check repository visibility and URL."}`,
     );
   const data = (await response.json()) as {
     private?: boolean;
@@ -95,7 +95,13 @@ export class E2BWorkspaceProvider {
   readonly #processes = new Map<string, CommandHandle>();
   readonly #ownedIds = new Set<string>();
 
-  constructor(apiKey = process.env.E2B_API_KEY) {
+  constructor(
+    apiKey = process.env.E2B_API_KEY,
+    readonly verifyRepository: (
+      repository: PublicRepository,
+      taskId: string,
+    ) => Promise<void> = verifyPublicRepository,
+  ) {
     if (!apiKey?.trim())
       throw new Error(
         "E2B_API_KEY is required; local execution fallback is forbidden",
@@ -113,7 +119,7 @@ export class E2BWorkspaceProvider {
       !/^[a-zA-Z0-9_-]{1,128}$/.test(organizationId)
     )
       throw new Error("Invalid sandbox ownership");
-    await verifyPublicRepository(repository); // Never provision before authorization/publicity checks.
+    await this.verifyRepository(repository, taskId); // Never provision before authorization/publicity checks.
     const sandbox = await Sandbox.create({
       apiKey: this.#apiKey,
       timeoutMs: 30 * 60_000,

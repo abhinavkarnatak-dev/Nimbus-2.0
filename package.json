@@ -7,13 +7,13 @@
     "node": ">=24"
   },
   "scripts": {
-    "runtime:build": "pnpm --filter @nimbus/web build && pnpm --filter @nimbus/executor build && node scripts/install-codex.mjs",
+    "runtime:build": "pnpm --filter @nimbus/web build && pnpm --filter @nimbus/executor build && node scripts/test-executor-build.mjs && node scripts/install-codex.mjs",
     "runtime:start": "node scripts/start-runtime.mjs",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test && node --test scripts/runtime-config.test.mjs",
+    "test": "turbo run test && node --test scripts/runtime-config.test.mjs scripts/codex-executable.test.mjs",
     "test:e2e": "playwright test",
     "format:check": "prettier --check .",
     "db:generate": "pnpm --filter @nimbus/database generate",

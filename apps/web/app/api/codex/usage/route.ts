@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentIdentity } from "@/lib/auth";
 import {
-  connectedDeviceProvider,
+  deviceUsageProvider,
   isLocalDeviceRequest,
 } from "@/lib/codex-device";
 
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     );
   let provider;
   try {
-    provider = await connectedDeviceProvider(
+    provider = await deviceUsageProvider(
       `${identity.organizationId}:${identity.userId}`,
     );
   } catch {
