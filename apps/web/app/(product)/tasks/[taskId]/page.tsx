@@ -85,7 +85,11 @@ export default async function TaskPage({
     ? (requested as Tab)
     : "process";
   const latestEvent = data.events.at(-1);
-  const session = sessionPresentation(data.task.status, data.task.archivedAt);
+  const session = sessionPresentation(
+    data.task.status,
+    data.task.archivedAt,
+    data.workspace?.status,
+  );
 
   return (
     <main className="agent-page">
@@ -118,7 +122,9 @@ export default async function TaskPage({
             />
             <p>
               {session.state === "idle"
-                ? "Ready for your next request"
+                ? session.label === "Sleeping"
+                  ? "Send a message to wake Nimbus"
+                  : "Ready for your next request"
                 : (latestEvent?.title ?? "Task accepted")}
             </p>
           </div>
@@ -158,47 +164,53 @@ export default async function TaskPage({
         archivedAt={data.task.archivedAt}
         initialEvents={data.events}
         workbench={
-          data.task.repository ? (
-            <section className="workbench-pane">
-              <nav className="workbench-tabs" aria-label="Task workspace">
-                {tabs.map(({ id, label, icon: Icon }) => (
-                  <Link
-                    className={tab === id ? "active" : ""}
-                    href={`/tasks/${taskId}?tab=${id}`}
-                    key={id}
-                  >
-                    <Icon size={14} />
-                    {label}
-                  </Link>
-                ))}
-              </nav>
-              <div className="workbench-body">
-                {tab === "files" ? (
-                  <FilesWorkbench
-                    taskId={taskId}
-                    cacheScope={`${identity.userId}:${identity.organizationId}`}
-                    workspaceVersion={
-                      data.workspace?.lastHeartbeatAt ?? "unavailable"
-                    }
-                    path={query.file}
-                    line={
-                      query.line && /^\d+$/.test(query.line)
-                        ? Number(query.line)
-                        : undefined
-                    }
-                    revision={query.revision}
-                    historyPath={query.historyFile}
-                  />
-                ) : (
-                  <TaskPanel
-                    tab={tab}
-                    data={data}
-                    artifactFile={query.artifactFile}
-                  />
-                )}
-              </div>
-            </section>
-          ) : null
+          <section className="workbench-pane">
+            <nav className="workbench-tabs" aria-label="Task workspace">
+              {tabs.map(({ id, label, icon: Icon }) => (
+                <Link
+                  className={tab === id ? "active" : ""}
+                  href={`/tasks/${taskId}?tab=${id}`}
+                  key={id}
+                >
+                  <Icon size={14} />
+                  {label}
+                </Link>
+              ))}
+            </nav>
+            <div className="workbench-body">
+              {!data.task.repository && !data.inspectedRepository ? (
+                <EmptyPanel
+                  icon={tabs.find((item) => item.id === tab)!.icon}
+                  title="Your workspace is ready"
+                  text="Ask Nimbus about a connected repository to inspect its files. Request changes or tests when you want to start coding."
+                />
+              ) : tab === "files" &&
+                (data.workspace || data.inspectedRepository) ? (
+                <FilesWorkbench
+                  taskId={taskId}
+                  cacheScope={`${identity.userId}:${identity.organizationId}`}
+                  workspaceVersion={
+                    data.workspace?.lastHeartbeatAt ??
+                    `github:${data.inspectedRepository?.repositoryId}:${data.inspectedRepository?.sha}`
+                  }
+                  path={query.file}
+                  line={
+                    query.line && /^\d+$/.test(query.line)
+                      ? Number(query.line)
+                      : undefined
+                  }
+                  revision={query.revision}
+                  historyPath={query.historyFile}
+                />
+              ) : (
+                <TaskPanel
+                  tab={tab}
+                  data={data}
+                  artifactFile={query.artifactFile}
+                />
+              )}
+            </div>
+          </section>
         }
       />
     </main>
@@ -215,6 +227,14 @@ function TaskPanel({
   artifactFile?: string | undefined;
 }) {
   if (tab === "process") return <ActivityPanel data={data} />;
+  if ((tab === "files" || tab === "changes") && !data.workspace)
+    return (
+      <EmptyPanel
+        icon={FileCode2}
+        title="No coding workspace yet"
+        text="Repository questions use read-only access. Ask Nimbus to make changes or run tests to start a coding workspace."
+      />
+    );
   if (tab === "changes")
     return (
       <ChangesWorkbench
@@ -259,7 +279,13 @@ function ActivityPanel({ data }: { data: Detail }) {
         <div>
           <small>Current state</small>
           <strong>
-            {sessionPresentation(data.task.status, data.task.archivedAt).label}
+            {
+              sessionPresentation(
+                data.task.status,
+                data.task.archivedAt,
+                data.workspace?.status,
+              ).label
+            }
           </strong>
         </div>
         <div>
@@ -272,7 +298,13 @@ function ActivityPanel({ data }: { data: Detail }) {
         </div>
         <div>
           <small>Workspace</small>
-          <strong>{data.workspace?.status ?? "pending"}</strong>
+          <strong>
+            {data.workspace?.status === "paused"
+              ? "Sleeping"
+              : data.workspace?.status === "ready"
+                ? "Online"
+                : (data.workspace?.status ?? "pending")}
+          </strong>
         </div>
       </div>
       <div className="activity-feed">

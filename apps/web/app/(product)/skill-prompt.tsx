@@ -1,6 +1,7 @@
 "use client";
 import {
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
@@ -10,6 +11,7 @@ import { X } from "lucide-react";
 import type { SkillSnapshot } from "@nimbus/shared";
 import styles from "./skill-prompt.module.css";
 import { submitPromptOnEnter } from "@/lib/prompt-keyboard";
+import { resizePrompt } from "@/lib/prompt-size";
 
 type Props = Omit<
   TextareaHTMLAttributes<HTMLTextAreaElement>,
@@ -20,6 +22,7 @@ type Props = Omit<
   skillIds?: string[];
   onSkillsChange?: (ids: string[]) => void;
   submitOnEnter?: boolean;
+  autoGrow?: boolean;
 };
 export function SkillPrompt({
   value,
@@ -27,6 +30,7 @@ export function SkillPrompt({
   skillIds,
   onSkillsChange,
   submitOnEnter = false,
+  autoGrow = false,
   ...props
 }: Props) {
   const [localText, setLocalText] = useState("");
@@ -45,6 +49,14 @@ export function SkillPrompt({
   const menuId = useId();
   const text = value ?? localText,
     ids = skillIds ?? localIds;
+  useLayoutEffect(() => {
+    const input = textarea.current;
+    if (!autoGrow || !input) return;
+    resizePrompt(input);
+    const observer = new ResizeObserver(() => resizePrompt(input));
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [text, autoGrow]);
   function changeText(next: string) {
     setLocalText(next);
     onValueChange?.(next);

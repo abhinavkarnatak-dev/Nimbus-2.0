@@ -598,9 +598,12 @@ select:focus-visible {
 }
 .launch-card textarea {
   display: block;
-  height: 48px;
-  min-height: 48px;
-  margin-top: 8px;
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  max-height: 192px;
+  overflow-y: hidden;
+  margin-top: 0;
   padding: 5px 0 0;
   resize: none;
   color: #eef0f4;
@@ -621,7 +624,7 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-top: 1px solid #292c32;
+  border-top: 0;
 }
 .repo-picker {
   height: 32px;
@@ -1242,9 +1245,8 @@ select:focus-visible {
 }
 .followup-box > button {
   position: absolute;
-  top: 50%;
+  bottom: 8px;
   right: 8px;
-  transform: translateY(-50%);
   width: 36px;
   height: 36px;
   display: grid;
@@ -1264,7 +1266,7 @@ select:focus-visible {
 .followup-box textarea {
   width: calc(100% - 42px);
   box-sizing: border-box;
-  padding: 22px 0 10px;
+  padding: 6px 0;
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -1272,10 +1274,10 @@ select:focus-visible {
   font-size: 15px;
   line-height: 1.5;
   resize: none;
-  height: 100px;
-  min-height: 100px;
-  max-height: 100px;
-  overflow-y: auto;
+  height: 36px;
+  min-height: 36px;
+  max-height: 192px;
+  overflow-y: hidden;
 }
 
 .followup-box textarea:focus-visible {

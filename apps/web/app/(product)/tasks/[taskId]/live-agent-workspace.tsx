@@ -420,7 +420,15 @@ export function LiveAgentWorkspace({
             </div>
           </article>
           {entries.map((entry) =>
-            entry.kind === "message" ? (
+            entry.kind === "notice" ? (
+              <div
+                className={styles.sleepNotice}
+                role="status"
+                key={entry.event.id}
+              >
+                Nimbus is sleeping 💤
+              </div>
+            ) : entry.kind === "message" ? (
               <LiveConversationEvent
                 event={entry.event}
                 onOpenFile={openFile}
@@ -487,6 +495,7 @@ export function LiveAgentWorkspace({
           )}
           <form
             className="followup-box"
+            data-sending={sending}
             title={
               !codexAvailable
                 ? "Connect Codex to continue sending messages."
@@ -498,21 +507,19 @@ export function LiveAgentWorkspace({
             }}
           >
             {stopError && <p role="alert">{stopError}</p>}
+            {sendError && <p role="alert">{sendError}</p>}
             <SkillPrompt
               submitOnEnter
+              autoGrow
               aria-label="Follow-up message"
-              placeholder={
-                workbench
-                  ? "Session stays open. Continue in the same workspace and thread."
-                  : "Continue in the same conversation."
-              }
+              placeholder="Continue in the same conversation."
               value={followup}
               onValueChange={setFollowup}
               skillIds={skillIds}
               onSkillsChange={setSkillIds}
               maxLength={8000}
               disabled={sending || status === "cancelling"}
-              rows={3}
+              rows={1}
             />
             {canStop ? (
               <button
@@ -550,7 +557,6 @@ export function LiveAgentWorkspace({
                 {sending ? "Sending..." : <Send size={14} />}
               </button>
             )}
-            {sendError && <p role="alert">{sendError}</p>}
           </form>
         </div>
       </aside>

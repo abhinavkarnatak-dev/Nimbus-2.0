@@ -12,11 +12,13 @@ import { sessionPresentation } from "@/lib/session-presentation";
 export function RunStateIcon({
   status,
   archivedAt,
+  workspaceStatus,
 }: {
   status: string;
   archivedAt?: string | null;
+  workspaceStatus?: string | null;
 }) {
-  const session = sessionPresentation(status, archivedAt);
+  const session = sessionPresentation(status, archivedAt, workspaceStatus);
   const active = [
     "provisioning",
     "running",

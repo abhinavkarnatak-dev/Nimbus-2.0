@@ -3,7 +3,7 @@ import { LandingPage } from "./landing-page";
 import { RepositorySync } from "./repository-sync";
 import { getSelectableCodexModels } from "@/lib/codex-models";
 import { listTasks } from "@/lib/task-data";
-import { sessionPresentation } from "@/lib/session-presentation";
+import { SessionStatusChip, SessionStatusProvider } from "./session-status";
 import { listAvailableRepositories } from "@/lib/available-repositories";
 import {
   ArrowRight,
@@ -16,7 +16,6 @@ import {
   GitPullRequest,
   LoaderCircle,
   MessageSquareText,
-  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -59,152 +58,141 @@ export default async function DashboardPage() {
     (task) => task.status === "pr_open" || task.status === "completed",
   );
   const visibleRepositories = repos;
-  const isLiveCodex = models.some(
-    (model) => model.id !== "fake-codex-test-provider",
-  );
 
   return (
-    <main className="dashboard-page">
-      <header className="dashboard-heading">
-        <div>
-          <p className="overline">Dashboard</p>
-          <h1>What can Nimbus help you with?</h1>
-          <p>
-            Chat with Nimbus, or select a repository to build, investigate, and
-            verify changes in an isolated workspace.
-          </p>
-        </div>
-      </header>
-
-      <RepositorySync />
-      <section className="launch-card" aria-label="Task composer">
-        <div className="launch-accent">
-          <Code2 size={19} />
-        </div>
-        <TaskLaunchForm initialModelAvailable={models.length > 0}>
-          <div className="launch-title-row">
-            <span>{isLiveCodex ? "Autonomous mode" : "Local simulation"}</span>
-          </div>
-          <SkillPrompt
-            submitOnEnter
-            id="task-objective"
-            aria-label="Task request"
-            name="objective"
-            required
-            minLength={1}
-            maxLength={8000}
-            rows={2}
-            placeholder="What should Nimbus build, fix, or investigate? Add any constraints or definition of done."
-          />
-          <div className="launch-footer">
-            <RepositoryPicker repositories={visibleRepositories} />
-            <ModelPicker initialModels={models} />
-            <div className="launch-capabilities">
-              <span>
-                <MessageSquareText size={14} /> General chat
-              </span>
-              <span>
-                <ShieldCheck size={14} /> Repo work stays isolated
-              </span>
-            </div>
-            <input
-              type="hidden"
-              name="idempotencyKey"
-              value={`dashboard-${crypto.randomUUID()}`}
-            />
-            <TaskLaunchButton />
-          </div>
-        </TaskLaunchForm>
-      </section>
-
-      <section className="run-section">
-        <div className="section-heading">
+    <SessionStatusProvider tasks={allTasks}>
+      <main className="dashboard-page">
+        <header className="dashboard-heading">
           <div>
-            <h2>Recent History</h2>
-            <p>Live and recent work across your repositories</p>
+            <p className="overline">Dashboard</p>
+            <h1>What can Nimbus help you with?</h1>
+            <p>
+              Chat with Nimbus, or select a repository to build, investigate,
+              and verify changes in an isolated workspace.
+            </p>
           </div>
-          <Link href="/tasks">
-            View all <ArrowRight size={14} />
-          </Link>
-        </div>
-        <div className="run-table">
-          <div className="run-table-head">
-            <span>Task</span>
-            <span>Repository</span>
-            <span>State</span>
-            <span>Updated</span>
-            <span />
-          </div>
-          {allTasks.length === 0 ? (
-            <div className="run-empty">
-              No agent runs yet. Start with an outcome above.
-            </div>
-          ) : (
-            allTasks
-              .slice(0, 8)
-              .map((task) => <TaskRow task={task} key={task.id} />)
-          )}
-        </div>
-      </section>
+        </header>
 
-      <section className="dashboard-lower-grid">
-        <div className="ops-card">
-          <div className="section-heading compact">
-            <div>
-              <h2>Execution health</h2>
-              <p>Confirmed control-plane state</p>
+        <RepositorySync />
+        <section className="launch-card" aria-label="Task composer">
+          <div className="launch-accent">
+            <Code2 size={19} />
+          </div>
+          <TaskLaunchForm initialModelAvailable={models.length > 0}>
+            <SkillPrompt
+              submitOnEnter
+              id="task-objective"
+              aria-label="Task request"
+              name="objective"
+              required
+              minLength={1}
+              maxLength={8000}
+              rows={1}
+              autoGrow
+              placeholder="What should Nimbus build, fix, or investigate? Add any constraints or definition of done."
+            />
+            <div className="launch-footer">
+              <RepositoryPicker repositories={visibleRepositories} />
+              <ModelPicker initialModels={models} />
+              <input
+                type="hidden"
+                name="idempotencyKey"
+                value={`dashboard-${crypto.randomUUID()}`}
+              />
+              <TaskLaunchButton />
             </div>
-            <span className="healthy-label">
-              <span className="live-dot" /> Healthy
-            </span>
-          </div>
-          <div className="health-grid">
-            <HealthItem
-              icon={LoaderCircle}
-              label="Running"
-              value={String(active.length)}
-              detail="task workspaces"
-            />
-            <HealthItem
-              icon={GitPullRequest}
-              label="Delivered"
-              value={String(delivered.length)}
-              detail="verified outcomes"
-            />
-            <HealthItem
-              icon={Clock3}
-              label="Queue"
-              value={String(
-                allTasks.filter((task) => task.status === "queued").length,
-              )}
-              detail="waiting to start"
-            />
-          </div>
-        </div>
-        <div className="ops-card">
-          <div className="section-heading compact">
+          </TaskLaunchForm>
+        </section>
+
+        <section className="run-section">
+          <div className="section-heading">
             <div>
-              <h2>How Nimbus works</h2>
-              <p>Adaptive, not a fixed pipeline</p>
+              <h2>Recent History</h2>
+              <p>Live and recent work across your repositories</p>
+            </div>
+            <Link href="/tasks">
+              View all <ArrowRight size={14} />
+            </Link>
+          </div>
+          <div className="run-table">
+            <div className="run-table-head">
+              <span>Task</span>
+              <span>Repository</span>
+              <span>State</span>
+              <span>Updated</span>
+              <span />
+            </div>
+            {allTasks.length === 0 ? (
+              <div className="run-empty">
+                No agent runs yet. Start with an outcome above.
+              </div>
+            ) : (
+              allTasks
+                .slice(0, 8)
+                .map((task) => <TaskRow task={task} key={task.id} />)
+            )}
+          </div>
+        </section>
+
+        <section className="dashboard-lower-grid">
+          <div className="ops-card">
+            <div className="section-heading compact">
+              <div>
+                <h2>Execution health</h2>
+                <p>Confirmed control-plane state</p>
+              </div>
+              <span className="healthy-label">
+                <span className="live-dot" /> Healthy
+              </span>
+            </div>
+            <div className="health-grid">
+              <HealthItem
+                icon={LoaderCircle}
+                label="Running"
+                value={String(active.length)}
+                detail="task workspaces"
+              />
+              <HealthItem
+                icon={GitPullRequest}
+                label="Delivered"
+                value={String(delivered.length)}
+                detail="verified outcomes"
+              />
+              <HealthItem
+                icon={Clock3}
+                label="Queue"
+                value={String(
+                  allTasks.filter((task) => task.status === "queued").length,
+                )}
+                detail="waiting to start"
+              />
             </div>
           </div>
-          <div className="agent-principles">
-            <span>
-              <CircleDot size={15} /> Codex chooses its next useful action from
-              current evidence.
-            </span>
-            <span>
-              <MessageSquareText size={15} /> Decisions, tools, and verification
-              remain visible as durable events.
-            </span>
-            <span>
-              <CheckCircle2 size={15} /> Completion requires a confirmed
-              terminal result, not a generated message.
-            </span>
+          <div className="ops-card">
+            <div className="section-heading compact">
+              <div>
+                <h2>How Nimbus works</h2>
+                <p>Adaptive, not a fixed pipeline</p>
+              </div>
+            </div>
+            <div className="agent-principles">
+              <span>
+                <CircleDot size={15} /> Codex chooses its next useful action
+                from current evidence.
+              </span>
+              <span>
+                <MessageSquareText size={15} /> Decisions, tools, and
+                verification remain visible as durable events.
+              </span>
+              <span>
+                <CheckCircle2 size={15} /> Completion requires a confirmed
+                terminal result, not a generated message.
+              </span>
+            </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+      </main>
+    </SessionStatusProvider>
   );
 }
 
@@ -213,11 +201,14 @@ function TaskRow({
 }: {
   task: Awaited<ReturnType<typeof listTasks>>[number];
 }) {
-  const session = sessionPresentation(task.status, task.archivedAt);
   return (
     <Link className="run-row" href={`/tasks/${task.id}`}>
       <span className="run-title">
-        <RunStateIcon status={task.status} archivedAt={task.archivedAt} />
+        <RunStateIcon
+          status={task.status}
+          archivedAt={task.archivedAt}
+          workspaceStatus={task.workspaceStatus}
+        />
         <span>
           <strong>{task.title}</strong>
           <small>{task.objective}</small>
@@ -227,9 +218,7 @@ function TaskRow({
         <GitBranch size={13} /> {task.repository ?? "General chat"}
       </span>
       <span>
-        <span className={`state-chip state-${session.state}`}>
-          {session.label}
-        </span>
+        <SessionStatusChip task={task} />
       </span>
       <time>{relativeTime(task.updatedAt)}</time>
       <ChevronRight size={16} />

@@ -4,6 +4,10 @@ import { and, db, eq, tasks, workspaces } from "@nimbus/database";
 import { currentIdentity } from "@/lib/auth";
 import { remoteWorkspace } from "@/lib/remote-workspace";
 import {
+  readConnectedRepository,
+  repositoryContext,
+} from "@/lib/repository-browser";
+import {
   FileBrowserError,
   listWorkspaceDirectory,
   readWorkspaceFile,
@@ -40,7 +44,7 @@ export async function GET(
       { error: "Task not found" },
       { status: 404, headers },
     );
-  if (!["local-test", "e2b"].includes(record.provider ?? ""))
+  if (record.provider && !["local-test", "e2b"].includes(record.provider))
     return NextResponse.json(
       { error: "The task workspace is not available for file browsing yet" },
       { status: 409, headers },
@@ -49,6 +53,40 @@ export async function GET(
     const url = new URL(request.url);
     const path = url.searchParams.get("path") ?? "";
     const operation = url.searchParams.get("operation") ?? "tree";
+    if (!["local-test", "e2b"].includes(record.provider ?? "")) {
+      const context = await repositoryContext(taskId);
+      if (!context)
+        return NextResponse.json(
+          { error: "Ask Nimbus about a repository first" },
+          { status: 409, headers },
+        );
+      if (operation === "history")
+        return NextResponse.json(
+          { entries: [], nextOffset: null },
+          { headers },
+        );
+      if (
+        !["tree", "read"].includes(operation) ||
+        url.searchParams.has("revision")
+      )
+        throw new FileBrowserError("This repository view is read-only");
+      const result = await readConnectedRepository(
+        identity.organizationId,
+        context.repositoryId,
+        path,
+        context.sha,
+      );
+      if (operation === "tree" && result.entries)
+        return NextResponse.json({ entries: result.entries }, { headers });
+      if (operation === "read" && typeof result.content === "string")
+        return NextResponse.json(
+          { path, revision: null, content: result.content },
+          { headers },
+        );
+      throw new FileBrowserError(
+        "The requested file or directory is unavailable",
+      );
+    }
     // Browse the checkpointed mirror. Only a deliberate root refresh exports the
     // active sandbox; changes retain their existing live-sync behavior.
     if (

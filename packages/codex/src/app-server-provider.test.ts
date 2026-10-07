@@ -198,7 +198,11 @@ describe("Codex execution contract", () => {
       (r) => r.method === "thread/start",
     )!.params;
     expect(start).toMatchObject({
-      dynamicTools: [expect.objectContaining({ name: "nimbus_load_skill" })],
+      dynamicTools: expect.arrayContaining([
+        expect.objectContaining({ name: "nimbus_load_skill" }),
+        expect.objectContaining({ name: "nimbus_read_repository" }),
+        expect.objectContaining({ name: "nimbus_start_repository_work" }),
+      ]),
       sandbox: "read-only",
       config: {
         "features.shell_tool": false,
@@ -254,6 +258,35 @@ describe("Codex execution contract", () => {
     expect(
       transport.requests.find((r) => String(r.id) === "tool-request"),
     ).toMatchObject({ result: { success: true } });
+    await provider.stop();
+  });
+  it("routes repository tools through a separate read-only/deferred callback without enabling execution", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_read_repository";
+    transport.toolArgs = { repositoryId: "repo", path: "README.md" };
+    const provider = create();
+    await provider.start();
+    const id = await provider.startChatThread("test-model");
+    const handler = vi.fn().mockResolvedValue({ content: "Overview" });
+    for await (const _ of provider.runTurn({
+      threadId: id,
+      prompt: "Explain repo",
+      onRepositoryCall: handler,
+    })) {
+      /* consume */
+    }
+    expect(handler).toHaveBeenCalledExactlyOnceWith(
+      "nimbus_read_repository",
+      transport.toolArgs,
+    );
+    expect(
+      transport.requests.find((r) => String(r.id) === "tool-request"),
+    ).toMatchObject({ result: { success: true } });
+    expect(
+      transport.requests.some(
+        (r) => r.method === "environment/add" || r.method === "command/exec",
+      ),
+    ).toBe(false);
     await provider.stop();
   });
   it("does not let the skill handler grant PR tools to general chat", async () => {

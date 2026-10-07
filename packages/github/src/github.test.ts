@@ -22,17 +22,94 @@ const config = {
 };
 
 describe("GitHub App security primitives", () => {
-  it("authenticates public repository validation and verifies its stored identity", async () => {
+  it("uses scoped read-only credentials for repository context without changing coding permissions", async () => {
     const transport = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(
+      .mockImplementation(async () =>
+        Response.json({ token: "scoped", expires_at: "later" }),
+      );
+    const client = new GitHubAppClient(config, transport);
+    await client.createInstallationToken(7, [42], "read");
+    expect(JSON.parse(String(transport.mock.calls[0][1]?.body))).toEqual({
+      repository_ids: [42],
+      permissions: { contents: "read" },
+    });
+    await client.createInstallationToken(7, [42]);
+    expect(JSON.parse(String(transport.mock.calls[1][1]?.body))).toMatchObject({
+      permissions: { contents: "write", pull_requests: "write" },
+    });
+  });
+  it("reads commit-pinned text and encodes branch and path segments", async () => {
+    const revision = "a".repeat(40);
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ object: { sha: revision } }))
+      .mockResolvedValueOnce(
         Response.json({
-          id: 42,
-          full_name: "owner/repo",
-          private: false,
-          visibility: "public",
+          type: "file",
+          encoding: "base64",
+          size: 5,
+          content: Buffer.from("hello").toString("base64"),
         }),
       );
+    const client = new GitHubAppClient(config, transport);
+    expect(
+      await client.readRepositoryRef("token", "owner", "repo", "feature/demo"),
+    ).toBe(revision);
+    expect(
+      await client.readRepositoryContents(
+        "token",
+        "owner",
+        "repo",
+        revision,
+        "src/a b.ts",
+      ),
+    ).toEqual({ content: "hello" });
+    expect(String(transport.mock.calls[0][0])).toContain(
+      "heads/feature%2Fdemo",
+    );
+    expect(String(transport.mock.calls[1][0])).toContain(
+      `contents/src/a%20b.ts?ref=${revision}`,
+    );
+  });
+  it.each([
+    { type: "symlink", encoding: "base64", content: "YQ==" },
+    {
+      type: "file",
+      submodule_git_url: "https://external.invalid",
+      encoding: "base64",
+      content: "YQ==",
+    },
+    { type: "file", encoding: "base64", content: "AA==" },
+    { type: "file", encoding: "base64", size: 64001, content: "YQ==" },
+    { type: "file", encoding: "base64", content: "/w==" },
+  ])(
+    "rejects binary, oversized, invalid UTF-8 and linked content: %j",
+    async (value) => {
+      const client = new GitHubAppClient(
+        config,
+        vi.fn<typeof fetch>().mockResolvedValue(Response.json(value)),
+      );
+      await expect(
+        client.readRepositoryContents(
+          "token",
+          "owner",
+          "repo",
+          "a".repeat(40),
+          "file",
+        ),
+      ).rejects.toThrow();
+    },
+  );
+  it("authenticates public repository validation and verifies its stored identity", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        id: 42,
+        full_name: "owner/repo",
+        private: false,
+        visibility: "public",
+      }),
+    );
     const client = new GitHubAppClient(config, transport);
     await client.verifyPublicRepository(
       "scoped-installation-token",

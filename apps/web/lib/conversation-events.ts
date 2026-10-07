@@ -14,6 +14,16 @@ export interface ConversationEvent {
 export function isProtocolEvent(event: ConversationEvent): boolean {
   return event.category === "protocol" || event.title === "Codex activity";
 }
+export function isSleepNotice(event: ConversationEvent): boolean {
+  return (
+    event.category === "lifecycle" &&
+    [
+      "Sandbox paused",
+      "Nimbus in sleep mode",
+      "Nimbus is sleeping 💤",
+    ].includes(event.title)
+  );
+}
 
 export function conversationEvents<T extends ConversationEvent>(
   events: readonly T[],
@@ -85,10 +95,10 @@ export function conversationEvents<T extends ConversationEvent>(
 // Only translate known system-authored copy. Never rewrite agent replies, user
 // messages, code, command output, or the persisted audit record.
 export function presentAgentEvent<T extends ConversationEvent>(event: T): T {
-  if (event.category === "lifecycle" && event.title === "Sandbox paused")
+  if (isSleepNotice(event))
     return {
       ...event,
-      title: "Nimbus in sleep mode",
+      title: "Nimbus is sleeping 💤",
       whatWasDone: "Your session is sleeping. Repository changes are saved.",
       whyItWasDone:
         "Send another message to wake Nimbus and continue the same conversation.",
@@ -122,7 +132,9 @@ export function conversationEntries<T extends ConversationEvent>(
   events: readonly T[],
 ) {
   const result: Array<
-    { kind: "message"; event: T } | { kind: "work"; events: T[] }
+    | { kind: "message"; event: T }
+    | { kind: "notice"; event: T }
+    | { kind: "work"; events: T[] }
   > = [];
   let followUp = false;
   for (const event of events) {
@@ -142,7 +154,10 @@ export function conversationEntries<T extends ConversationEvent>(
       ].includes(event.title)
     )
       continue;
-    if (["conversation", "agent_message", "message"].includes(event.category))
+    if (isSleepNotice(event)) result.push({ kind: "notice", event });
+    else if (
+      ["conversation", "agent_message", "message"].includes(event.category)
+    )
       result.push({ kind: "message", event });
     else {
       const previous = result.at(-1);

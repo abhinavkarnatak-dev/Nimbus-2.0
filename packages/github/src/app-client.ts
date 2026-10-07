@@ -149,6 +149,7 @@ export class GitHubAppClient {
   async createInstallationToken(
     installationId: number,
     repositoryIds?: number[],
+    access: "read" | "write" = "write",
   ): Promise<InstallationToken> {
     const response = await this.#api(
       `/app/installations/${installationId}/access_tokens`,
@@ -157,11 +158,14 @@ export class GitHubAppClient {
         method: "POST",
         body: JSON.stringify({
           ...(repositoryIds ? { repository_ids: repositoryIds } : {}),
-          permissions: {
-            checks: "read",
-            contents: "write",
-            pull_requests: "write",
-          },
+          permissions:
+            access === "read"
+              ? { contents: "read" }
+              : {
+                  checks: "read",
+                  contents: "write",
+                  pull_requests: "write",
+                },
         }),
       },
     );
@@ -170,6 +174,75 @@ export class GitHubAppClient {
     if (!token || !expiresAt)
       throw new Error("GitHub installation token response was malformed");
     return { token, expiresAt };
+  }
+
+  async readRepositoryRef(
+    token: string,
+    owner: string,
+    name: string,
+    branch: string,
+  ) {
+    const result = await this.#api(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/ref/heads/${encodeURIComponent(branch)}`,
+      token,
+    );
+    const sha = asRecord(result.object).sha;
+    if (typeof sha !== "string" || !/^[a-f0-9]{40}$/.test(sha))
+      throw new Error("Repository revision is unavailable");
+    return sha;
+  }
+
+  async readRepositoryContents(
+    token: string,
+    owner: string,
+    name: string,
+    sha: string,
+    path: string,
+  ) {
+    if (!/^[a-f0-9]{40}$/.test(sha))
+      throw new Error("Invalid repository revision");
+    const result = await this.#requestJson(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`,
+      token,
+    );
+    if (Array.isArray(result)) {
+      if (result.length > 1000)
+        throw new Error("Directory is too large to display");
+      return {
+        entries: result
+          .map((value: unknown) => {
+            const row = asRecord(value);
+            if (typeof row.name !== "string" || typeof row.path !== "string")
+              throw new Error("Invalid repository directory");
+            return {
+              name: row.name,
+              path: row.path,
+              kind:
+                row.type === "dir"
+                  ? "directory"
+                  : row.type === "file" && !row.submodule_git_url
+                    ? "file"
+                    : "link",
+            };
+          })
+          .filter((row) => row.name.toLowerCase() !== ".git"),
+      };
+    }
+    const file = asRecord(result);
+    if (
+      file.type !== "file" ||
+      file.submodule_git_url ||
+      file.encoding !== "base64" ||
+      typeof file.content !== "string"
+    )
+      throw new Error("Choose a regular text file");
+    if (Number(file.size) > 64_000 || file.content.length > 90_000)
+      throw new Error("File exceeds the 64 KB preview limit");
+    const bytes = Buffer.from(file.content, "base64");
+    if (bytes.length > 64_000 || bytes.includes(0))
+      throw new Error("File is too large or binary");
+    const content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return { content };
   }
 
   async verifyPublicRepository(

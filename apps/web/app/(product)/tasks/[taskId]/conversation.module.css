@@ -461,6 +461,13 @@
   position: relative;
   flex-shrink: 0;
 }
+.sleepNotice {
+  width: 100%;
+  padding: 14px 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
 .latestButton {
   position: absolute;
   top: -44px;

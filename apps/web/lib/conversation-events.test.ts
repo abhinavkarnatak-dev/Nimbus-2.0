@@ -14,6 +14,27 @@ const event = (sequence: number, category: string, text = "update") => ({
   whatWasDone: text,
 });
 describe("conversation event presentation", () => {
+  it.each(["Sandbox paused", "Nimbus in sleep mode", "Nimbus is sleeping 💤"])(
+    "places %s outside work logs",
+    (title) => {
+      const entries = conversationEntries(
+        conversationEvents([
+          event(1, "tool"),
+          { ...event(2, "lifecycle"), title },
+          event(3, "agent_message", "Hello again"),
+        ]),
+      );
+      expect(entries.map((entry) => entry.kind)).toEqual([
+        "work",
+        "notice",
+        "message",
+      ]);
+      const notice = entries[1];
+      expect(notice && notice.kind !== "work" && notice.event.title).toBe(
+        "Nimbus is sleeping 💤",
+      );
+    },
+  );
   it("keeps an interrupted partial reply together and shows just one final stop event", () => {
     const events = [
       { ...event(1, "agent_message", "H"), evidence: ["codex-item:reply"] },
@@ -109,7 +130,7 @@ describe("conversation event presentation", () => {
     ];
     expect(
       conversationEntries(events).flatMap((entry) =>
-        entry.kind === "message"
+        entry.kind !== "work"
           ? [entry.event.sequence]
           : entry.events.map((event) => event.sequence),
       ),
@@ -136,7 +157,7 @@ describe("conversation event presentation", () => {
     ];
     expect(
       conversationEntries(events).flatMap((entry) =>
-        entry.kind === "message"
+        entry.kind !== "work"
           ? [entry.event.sequence]
           : entry.events.map((event) => event.sequence),
       ),

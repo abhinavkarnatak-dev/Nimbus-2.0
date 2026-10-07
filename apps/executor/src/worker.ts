@@ -424,10 +424,14 @@ export class TaskWorker {
           "A real Codex model cannot run through the simulation provider",
         );
       await checkStopped();
-      const [existingThread] = await db()
+      const [storedThread] = await db()
         .select()
         .from(codexThreads)
         .where(eq(codexThreads.taskId, task.id));
+      // A general conversation's read-only thread is never resumed as a coding
+      // thread. The bridge replaces its active slot after workspace provisioning.
+      const existingThread =
+        repositoryMode && !storedThread?.workspaceId ? undefined : storedThread;
       if (existingThread && existingThread.model !== model)
         throw new Error("Thread model mismatch");
       const threadId =
@@ -570,6 +574,21 @@ export class TaskWorker {
             text?: string;
           };
           const item = payload.item;
+          if (
+            ["nimbus/repositoryRead", "nimbus/repositoryWork"].includes(
+              update.method,
+            )
+          )
+            await event(
+              "running",
+              update.method === "nimbus/repositoryRead"
+                ? "Repository inspected"
+                : "Repository work requested",
+              payload.text ?? "",
+              "Repository reads do not start a sandbox; execution requires an explicit user request.",
+              "succeeded",
+              "repository",
+            );
           if (update.method === "nimbus/skill")
             await event(
               "running",
@@ -797,7 +816,7 @@ export class TaskWorker {
         await this.sessions!.scheduleIdle(task.id, () =>
           event(
             "idle",
-            "Nimbus in sleep mode",
+            "Nimbus is sleeping 💤",
             "Your session is sleeping after two minutes of inactivity. Repository changes are saved.",
             "Send another message to wake Nimbus and continue the same conversation.",
           ),
@@ -805,6 +824,21 @@ export class TaskWorker {
       finishRunObservability("completed");
     } catch (error) {
       if (messageId && (await requestWasStopped(messageId))) {
+        // A deferred repository handoff is the same user request, not a new
+        // follow-up. Stopping its routing turn must also stop the continuation.
+        await db()
+          .update(taskMessages)
+          .set({ status: "cancelled", completedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(taskMessages.taskId, task.id),
+              eq(
+                taskMessages.idempotencyKey,
+                `repository-handoff:${messageId}`,
+              ),
+              eq(taskMessages.status, "queued"),
+            ),
+          );
         captureAiGeneration("interrupted");
         finishRunObservability("interrupted");
         if (task.repositoryId && provider.kind !== "fake") {
@@ -853,7 +887,7 @@ export class TaskWorker {
             ?.scheduleIdle(task.id, () =>
               event(
                 "idle",
-                "Nimbus in sleep mode",
+                "Nimbus is sleeping 💤",
                 "Your session is sleeping. Changes from the stopped request are saved.",
                 "Send another message to wake Nimbus and continue this session.",
               ),

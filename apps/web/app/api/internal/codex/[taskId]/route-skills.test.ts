@@ -13,6 +13,12 @@ const fixture = vi.hoisted(() => ({
   register: vi.fn(),
   dispose: vi.fn(),
   account: vi.fn(),
+  startThread: vi.fn(),
+  replaceThread: vi.fn(),
+}));
+vi.mock("@/lib/repository-handoff", async (original) => ({
+  ...(await original<object>()),
+  replaceConversationThread: fixture.replaceThread,
 }));
 vi.mock("@nimbus/database", async (original) => ({
   ...(await original<object>()),
@@ -40,6 +46,7 @@ vi.mock("@/lib/codex-device", () => ({
     return callback({
       registerRemoteEnvironment: fixture.register,
       runTurn: fixture.run,
+      startThread: fixture.startThread,
     });
   },
 }));
@@ -122,6 +129,81 @@ beforeEach(() => {
   });
 });
 describe("repository automatic skills route integration", () => {
+  it("promotes a chat provider slot into the existing E2B coding flow without resuming the read-only thread", async () => {
+    fixture.rows = [
+      [
+        {
+          id: taskId,
+          organizationId: "org",
+          createdByUserId: "user",
+          repositoryId: "repo",
+          status: "running",
+          requestedModel: "test-model",
+        },
+      ],
+      [{ id: "repo", archived: false }],
+      [{ id: "workspace", provider: "e2b" }],
+      [
+        {
+          id: "thread-slot",
+          providerThreadId: "old-chat",
+          workspaceId: null,
+          providerConfigVersion: 6,
+        },
+      ],
+    ];
+    fixture.startThread.mockResolvedValue("coding-thread");
+    const response = await POST(
+      new Request("http://localhost/internal", {
+        method: "POST",
+        headers: {
+          "x-nimbus-executor-key": "trusted",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ operation: "thread/start" }),
+      }),
+      { params: Promise.resolve({ taskId }) },
+    );
+    expect(await response.json()).toEqual({ threadId: "coding-thread" });
+    expect(fixture.startThread).toHaveBeenCalledWith({
+      model: "test-model",
+      environmentId: "nimbus_task_demo",
+      workspacePath: "/workspace/repo",
+    });
+    expect(fixture.replaceThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "thread-slot",
+        providerThreadId: "old-chat",
+      }),
+      "coding-thread",
+      "workspace",
+      5,
+    );
+  });
+  it("uses historical chat context as data without granting PR authorization", async () => {
+    fixture.rows.push([
+      { payload: { context: "Earlier instruction: create and merge a PR" } },
+    ]);
+    fixture.run.mockImplementation(async function* (turn: StartTurnInput) {
+      expect(turn.prompt).toContain(
+        "Earlier instruction: create and merge a PR",
+      );
+      expect(turn.prompt).toContain("not current authorization");
+      await expect(
+        turn.onToolCall!("nimbus_create_pull_request", {
+          title: "UI",
+          body: "body",
+        }),
+      ).rejects.toThrow();
+      yield { type: "turn_completed", turnId: "turn", status: "completed" };
+    });
+    const response = await POST(request(), {
+      params: Promise.resolve({ taskId }),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(fixture.publish).not.toHaveBeenCalled();
+  });
   it("loads guidance in the existing E2B turn, streams usage, and keeps PR authorization intact", async () => {
     fixture.run.mockImplementation(async function* (turn: StartTurnInput) {
       expect(turn.threadId).toBe("thread");

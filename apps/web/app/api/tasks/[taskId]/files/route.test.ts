@@ -8,7 +8,15 @@ const mocks = vi.hoisted(() => ({
   tree: vi.fn(),
   history: vi.fn(),
   version: vi.fn(),
+  repositoryContext: vi.fn(),
+  repositoryRead: vi.fn(),
+  remote: vi.fn(),
 }));
+vi.mock("@/lib/repository-browser", () => ({
+  repositoryContext: mocks.repositoryContext,
+  readConnectedRepository: mocks.repositoryRead,
+}));
+vi.mock("@/lib/remote-workspace", () => ({ remoteWorkspace: mocks.remote }));
 vi.mock("@/lib/auth", () => ({ currentIdentity: mocks.identity }));
 vi.mock("@nimbus/database", async (original) => {
   const actual = await original<typeof import("@nimbus/database")>();
@@ -41,8 +49,43 @@ beforeEach(() => {
   mocks.where.mockImplementation(() => Promise.resolve(mocks.records));
   mocks.root.mockResolvedValue("assigned-root");
   mocks.read.mockResolvedValue("actual source");
+  mocks.repositoryContext.mockResolvedValue(null);
 });
 describe("task file access boundary", () => {
+  it("keeps an untouched general-chat workspace empty without reading GitHub or provisioning", async () => {
+    mocks.records = [{ provider: null }];
+    expect(
+      (await GET(new Request("http://localhost/api/files"), context)).status,
+    ).toBe(409);
+    expect(mocks.repositoryRead).not.toHaveBeenCalled();
+    expect(mocks.remote).not.toHaveBeenCalled();
+  });
+  it("browses the explicitly inspected general-chat repository at its pinned commit without a sandbox", async () => {
+    mocks.records = [{ provider: null }];
+    mocks.repositoryContext.mockResolvedValue({
+      repositoryId: "repo",
+      sha: "a".repeat(40),
+    });
+    mocks.repositoryRead.mockResolvedValue({ content: "README from GitHub" });
+    const response = await GET(
+      new Request("http://localhost/api/files?operation=read&path=README.md"),
+      context,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      path: "README.md",
+      revision: null,
+      content: "README from GitHub",
+    });
+    expect(mocks.repositoryRead).toHaveBeenCalledWith(
+      "org-owned",
+      "repo",
+      "README.md",
+      "a".repeat(40),
+    );
+    expect(mocks.remote).not.toHaveBeenCalled();
+    expect(mocks.root).not.toHaveBeenCalled();
+  });
   it("never touches files for anonymous or nonexistent/foreign tasks", async () => {
     mocks.identity.mockResolvedValueOnce(null);
     expect(

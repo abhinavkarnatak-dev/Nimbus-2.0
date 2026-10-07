@@ -26,6 +26,8 @@ export interface StartTurnInput {
   onToolCall?: (tool: string, args: unknown) => Promise<unknown>;
   // Read-only saved guidance; kept separate from execution/publishing tools.
   onSkillCall?: (args: unknown) => Promise<unknown>;
+  // General chat repository reads and deferred work handoff only. No execution.
+  onRepositoryCall?: (tool: string, args: unknown) => Promise<unknown>;
 }
 
 export interface CodingAgentModel {

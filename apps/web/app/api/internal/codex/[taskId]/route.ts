@@ -36,6 +36,10 @@ import {
   prepareAutomaticSkills,
   SKILL_TOOL_THREAD_VERSION,
 } from "@/lib/automatic-skills";
+import {
+  replaceConversationThread,
+  repositoryHandoffPrompt,
+} from "@/lib/repository-handoff";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,7 +127,7 @@ export async function POST(
         .from(codexThreads)
         .where(eq(codexThreads.taskId, task.id));
       if (input.operation === "thread/start") {
-        if (thread)
+        if (thread?.workspaceId)
           return NextResponse.json({ threadId: thread.providerThreadId });
         if (!task.requestedModel) throw new Error("Task has no selected model");
         const threadId = await provider.startThread({
@@ -131,16 +135,24 @@ export async function POST(
           environmentId: environment.environmentId,
           workspacePath: "/workspace/repo",
         });
-        await db()
-          .insert(codexThreads)
-          .values({
-            id: `ctx_${randomUUID().replaceAll("-", "")}`,
-            taskId: task.id,
-            workspaceId: workspace.id,
-            providerThreadId: threadId,
-            model: task.requestedModel,
-            providerConfigVersion: SKILL_TOOL_THREAD_VERSION,
-          });
+        if (thread) {
+          await replaceConversationThread(
+            thread,
+            threadId,
+            workspace.id,
+            SKILL_TOOL_THREAD_VERSION,
+          );
+        } else
+          await db()
+            .insert(codexThreads)
+            .values({
+              id: `ctx_${randomUUID().replaceAll("-", "")}`,
+              taskId: task.id,
+              workspaceId: workspace.id,
+              providerThreadId: threadId,
+              model: task.requestedModel,
+              providerConfigVersion: SKILL_TOOL_THREAD_VERSION,
+            });
         return NextResponse.json({ threadId });
       }
       if (!thread || thread.providerThreadId !== input.threadId)
@@ -205,7 +217,9 @@ export async function POST(
             prompt: withAgentInstructions(
               skills.prompt(
                 sessionTitlePrompt(
-                  message.content,
+                  thread.lastConfirmedCompletionStatus === "completed"
+                    ? message.content
+                    : await repositoryHandoffPrompt(task.id, message.content),
                   task.title,
                   Boolean(task.titleGeneratedAt),
                 ),

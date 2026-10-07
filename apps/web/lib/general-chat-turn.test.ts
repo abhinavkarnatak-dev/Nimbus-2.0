@@ -9,6 +9,17 @@ const fixture = vi.hoisted(() => ({
   insert: vi.fn(),
   dispose: vi.fn(),
   instructions: vi.fn(),
+  handoffContext: vi.fn(),
+  replaceThread: vi.fn(),
+  repositories: vi.fn(),
+}));
+vi.mock("./available-repositories", () => ({
+  listAvailableRepositories: fixture.repositories,
+}));
+vi.mock("./repository-handoff", () => ({
+  REPOSITORY_CHAT_VERSION: 6,
+  conversationHandoffContext: fixture.handoffContext,
+  replaceConversationThread: fixture.replaceThread,
 }));
 vi.mock("@nimbus/database", async (original) => ({
   ...(await original<object>()),
@@ -48,7 +59,7 @@ const task = {
   title: "Demo",
   titleGeneratedAt: "2026-10-07",
 } as typeof tasks.$inferSelect;
-function setup(version = 5) {
+function setup(version = 6) {
   fixture.rows = [
     [
       {
@@ -74,6 +85,8 @@ beforeEach(() => {
   ]);
   fixture.resolve.mockResolvedValue([skill]);
   fixture.instructions.mockResolvedValue([]);
+  fixture.repositories.mockResolvedValue([]);
+  fixture.handoffContext.mockResolvedValue("Earlier user context");
   setup();
 });
 describe("general chat automatic skills streaming integration", () => {
@@ -122,14 +135,15 @@ describe("general chat automatic skills streaming integration", () => {
     expect(active.size).toBe(0);
     expect(fixture.dispose).toHaveBeenCalledTimes(1);
   });
-  it("keeps legacy conversation IDs and handles usage without a new dynamic tool", async () => {
+  it("upgrades legacy provider threads without losing the visible conversation context", async () => {
     setup(3);
     const runTurn = vi.fn(async function* (input: StartTurnInput) {
-      expect(input.threadId).toBe("thread");
-      expect(input.prompt).toContain(skill.summary);
+      expect(input.threadId).toBe("replacement");
+      expect(input.prompt).toContain("Earlier user context");
+      await input.onSkillCall!({ id: skill.id });
       yield {
         type: "agent_message_delta" as const,
-        text: '<nimbus_skill>"frontend"</nimbus_skill>Reply',
+        text: "Reply",
         itemId: "reply",
       };
       yield {
@@ -144,7 +158,7 @@ describe("general chat automatic skills streaming integration", () => {
       { operation: "turn/start", threadId: "thread" },
       new Set(),
       {
-        startChatThread: vi.fn(),
+        startChatThread: vi.fn().mockResolvedValue("replacement"),
         runTurn,
       } as unknown as CodexAppServerProvider,
     );
@@ -153,6 +167,12 @@ describe("general chat automatic skills streaming integration", () => {
     expect(body).toContain('"text":"Reply"');
     expect(body).not.toContain("<nimbus_skill>");
     expect(runTurn).toHaveBeenCalledTimes(1);
+    expect(fixture.replaceThread).toHaveBeenCalledWith(
+      expect.objectContaining({ providerThreadId: "thread" }),
+      "replacement",
+      null,
+      6,
+    );
   });
   it("records the skill-capable version for new general chat threads without changing login", async () => {
     fixture.rows = [[]];
@@ -167,7 +187,7 @@ describe("general chat automatic skills streaming integration", () => {
     expect(await response.json()).toEqual({ threadId: "new-thread" });
     expect(startChatThread).toHaveBeenCalledExactlyOnceWith("test-model");
     expect(fixture.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ providerConfigVersion: 5, workspaceId: null }),
+      expect.objectContaining({ providerConfigVersion: 6, workspaceId: null }),
     );
   });
 });

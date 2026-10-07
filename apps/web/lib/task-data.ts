@@ -16,6 +16,7 @@ import {
   eq,
   activeRequestId,
 } from "@nimbus/database";
+import { repositoryContext } from "./repository-browser";
 
 export async function listTasks(organizationId: string) {
   return db()
@@ -29,9 +30,11 @@ export async function listTasks(organizationId: string) {
       updatedAt: tasks.updatedAt,
       repository: repositories.fullName,
       branchName: tasks.branchName,
+      workspaceStatus: workspaces.status,
     })
     .from(tasks)
     .leftJoin(repositories, eq(tasks.repositoryId, repositories.id))
+    .leftJoin(workspaces, eq(workspaces.taskId, tasks.id))
     .where(eq(tasks.organizationId, organizationId))
     .orderBy(desc(tasks.updatedAt));
 }
@@ -69,6 +72,7 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
     taskArtifacts,
     workspace,
     thread,
+    inspectedRepository,
   ] = await Promise.all([
     db()
       .select()
@@ -110,6 +114,7 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
       .from(codexThreads)
       .where(eq(codexThreads.taskId, taskId))
       .limit(1),
+    repositoryContext(taskId),
   ]);
 
   return {
@@ -124,5 +129,6 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
     artifacts: taskArtifacts,
     workspace: workspace[0] ?? null,
     thread: thread[0] ?? null,
+    inspectedRepository,
   };
 }

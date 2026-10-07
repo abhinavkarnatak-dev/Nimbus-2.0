@@ -10,6 +10,9 @@
 :global(.followup-box) .root textarea {
   width: 100%;
 }
+:global(.followup-box[data-sending="true"]) > .root {
+  width: calc(100% - 100px);
+}
 .chips {
   display: flex;
   flex-wrap: wrap;

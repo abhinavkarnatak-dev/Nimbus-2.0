@@ -5,13 +5,24 @@ describe("persistent session labels", () => {
     for (const status of ["completed", "pr_open"])
       expect(sessionPresentation(status)).toEqual({
         state: "idle",
-        label: "Idle",
+        label: "Online",
       });
     expect(sessionPresentation("running")).toEqual({
       state: "running",
       label: "Running",
     });
     expect(sessionPresentation("queued").label).toBe("Queued");
+  });
+  it("shows sleeping only after the workspace actually pauses", () => {
+    expect(sessionPresentation("completed", null, "ready").label).toBe(
+      "Online",
+    );
+    expect(sessionPresentation("completed", null, "paused").label).toBe(
+      "Sleeping",
+    );
+    expect(sessionPresentation("running", null, "paused").label).toBe(
+      "Running",
+    );
   });
   it("does not disguise failed, stopped or archived sessions as ready", () => {
     expect(sessionPresentation("failed").label).toBe("Failed");
