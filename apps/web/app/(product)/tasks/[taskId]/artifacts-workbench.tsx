@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Download, FileText, LoaderCircle, RefreshCw } from "lucide-react";
 import styles from "./artifacts-workbench.module.css";
 import { PanelHeader } from "./workbench-panel-header";
+import { formatIstDateTime } from "@/lib/display-time";
 interface Artifact {
   id: string;
   name: string;
@@ -151,9 +152,7 @@ export function ArtifactsWorkbench({
                   </div>
                   <small>
                     <time dateTime={artifact.createdAt}>
-                      {new Date(artifact.createdAt).toLocaleString("en-IN", {
-                        timeZone: "Asia/Kolkata",
-                      })}
+                      {formatIstDateTime(artifact.createdAt)}
                     </time>
                   </small>
                 </div>

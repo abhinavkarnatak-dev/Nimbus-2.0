@@ -110,11 +110,11 @@
 }
 :global(.app-shell) .addition {
   background: var(--green-soft);
-  color: #9be4bd;
+  color: #116329;
 }
 :global(.app-shell) .deletion {
   background: var(--red-soft);
-  color: #ffabb0;
+  color: #a40e26;
 }
 
 .file,

@@ -80,11 +80,12 @@ export default async function DashboardPage() {
         <div className="launch-accent">
           <Code2 size={19} />
         </div>
-        <TaskLaunchForm>
+        <TaskLaunchForm initialModelAvailable={models.length > 0}>
           <div className="launch-title-row">
             <span>{isLiveCodex ? "Autonomous mode" : "Local simulation"}</span>
           </div>
           <SkillPrompt
+            submitOnEnter
             id="task-objective"
             aria-label="Task request"
             name="objective"

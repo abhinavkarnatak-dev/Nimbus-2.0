@@ -2,6 +2,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   useSyncExternalStore,
   type FormEvent,
@@ -12,14 +13,41 @@ import { useRouter } from "next/navigation";
 import { Play } from "lucide-react";
 
 const LaunchBusyContext = createContext(false);
+const LaunchModelContext = createContext<{
+  available: boolean;
+  setAvailable: (available: boolean) => void;
+} | null>(null);
+
+export function useLaunchModelAvailability(model: string | undefined) {
+  const update = useContext(LaunchModelContext)?.setAvailable;
+  useEffect(() => {
+    update?.(Boolean(model));
+  }, [model, update]);
+}
 
 export function TaskLaunchButton() {
   const busy = useContext(LaunchBusyContext);
+  const available = useContext(LaunchModelContext)?.available ?? false;
+  const explanation = !available
+    ? "Connect Codex and select a model to start sending messages."
+    : undefined;
   return (
-    <button type="submit" className="launch-button">
-      {!busy && <Play size={14} fill="currentColor" />}
-      {busy ? "Starting…" : "Start"}
-    </button>
+    <span
+      className="launch-action"
+      title={explanation}
+      tabIndex={!available ? 0 : undefined}
+      aria-label={explanation}
+    >
+      <button
+        type="submit"
+        className="launch-button"
+        disabled={busy || !available}
+        title={explanation}
+      >
+        {!busy && <Play size={14} fill="currentColor" />}
+        {busy ? "Starting…" : "Start"}
+      </button>
+    </span>
   );
 }
 
@@ -30,18 +58,22 @@ const serverReady = () => false;
 export function TaskLaunchForm({
   children,
   style,
+  initialModelAvailable = false,
 }: {
   children: ReactNode;
   style?: CSSProperties;
+  initialModelAvailable?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [available, setAvailable] = useState(initialModelAvailable);
   const ready = useSyncExternalStore(subscribe, clientReady, serverReady);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     const body = new FormData(event.currentTarget);
+    if (!ready || !available || !String(body.get("model") ?? "").trim()) return;
     setBusy(true);
     setError("");
     try {
@@ -76,7 +108,9 @@ export function TaskLaunchForm({
     >
       <fieldset disabled={busy || !ready} style={{ display: "contents" }}>
         <LaunchBusyContext.Provider value={busy}>
-          {children}
+          <LaunchModelContext.Provider value={{ available, setAvailable }}>
+            {children}
+          </LaunchModelContext.Provider>
         </LaunchBusyContext.Provider>
       </fieldset>
       {error && (

@@ -9,6 +9,7 @@ import {
 import { X } from "lucide-react";
 import type { SkillSnapshot } from "@nimbus/shared";
 import styles from "./skill-prompt.module.css";
+import { submitPromptOnEnter } from "@/lib/prompt-keyboard";
 
 type Props = Omit<
   TextareaHTMLAttributes<HTMLTextAreaElement>,
@@ -18,12 +19,14 @@ type Props = Omit<
   onValueChange?: (value: string) => void;
   skillIds?: string[];
   onSkillsChange?: (ids: string[]) => void;
+  submitOnEnter?: boolean;
 };
 export function SkillPrompt({
   value,
   onValueChange,
   skillIds,
   onSkillsChange,
+  submitOnEnter = false,
   ...props
 }: Props) {
   const [localText, setLocalText] = useState("");
@@ -170,7 +173,17 @@ export function SkillPrompt({
           inspect(event.target.value, event.target.selectionStart);
         }}
         onKeyDown={(event) => {
-          if (!slash) return;
+          props.onKeyDown?.(event);
+          if (
+            event.defaultPrevented ||
+            event.nativeEvent.isComposing ||
+            event.nativeEvent.keyCode === 229
+          )
+            return;
+          if (!slash) {
+            if (submitOnEnter) submitPromptOnEnter(event);
+            return;
+          }
           if (event.key === "Escape") {
             event.preventDefault();
             setSlash(null);
@@ -187,6 +200,7 @@ export function SkillPrompt({
             );
           } else if (
             event.key === "Enter" &&
+            !event.shiftKey &&
             matches[index] &&
             !loading &&
             !error &&
@@ -194,6 +208,9 @@ export function SkillPrompt({
           ) {
             event.preventDefault();
             choose(matches[index]!);
+          } else if (event.key === "Enter" && !event.shiftKey) {
+            // An open skill menu must not accidentally send the prompt.
+            event.preventDefault();
           }
         }}
       />

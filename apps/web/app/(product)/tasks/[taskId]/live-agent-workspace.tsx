@@ -12,14 +12,7 @@ import {
   Square,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   conversationEntries,
   conversationEvents,
@@ -33,6 +26,8 @@ import { prCardData } from "@/lib/pr-card";
 import { PullRequestChatCard } from "./pull-request-chat-card";
 import { formatWorkDuration, workEventTiming } from "@/lib/work-duration";
 import { SkillPrompt } from "../../skill-prompt";
+import { formatIstTime, formatIstDateTime } from "@/lib/display-time";
+import { useCodexAvailability } from "@/lib/use-codex-availability";
 
 interface LiveTaskEvent {
   id: string;
@@ -76,6 +71,7 @@ export function LiveAgentWorkspace({
   workbench,
 }: LiveAgentWorkspaceProps) {
   const router = useRouter();
+  const codexAvailable = useCodexAvailability();
   const [events, setEvents] = useState(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [workbenchOpen, setWorkbenchOpen] = useState(Boolean(workbench));
@@ -289,7 +285,8 @@ export function LiveAgentWorkspace({
 
   const sendFollowup = async () => {
     const content = followup.trim();
-    if (!content || sending) return;
+    if (!content || sending || !codexAvailable || status === "cancelling")
+      return;
     if (
       submission.current?.content !== content ||
       submission.current.skills !== JSON.stringify(skillIds)
@@ -490,6 +487,11 @@ export function LiveAgentWorkspace({
           )}
           <form
             className="followup-box"
+            title={
+              !codexAvailable
+                ? "Connect Codex to continue sending messages."
+                : undefined
+            }
             onSubmit={(event) => {
               event.preventDefault();
               void sendFollowup();
@@ -497,6 +499,7 @@ export function LiveAgentWorkspace({
           >
             {stopError && <p role="alert">{stopError}</p>}
             <SkillPrompt
+              submitOnEnter
               aria-label="Follow-up message"
               placeholder={
                 workbench
@@ -532,8 +535,16 @@ export function LiveAgentWorkspace({
                 type="submit"
                 className={sending ? styles.sendingButton : undefined}
                 aria-label="Send follow-up"
+                title={
+                  !codexAvailable
+                    ? "Connect Codex to continue sending messages."
+                    : "Send follow-up"
+                }
                 disabled={
-                  sending || !followup.trim() || status === "cancelling"
+                  !codexAvailable ||
+                  sending ||
+                  !followup.trim() ||
+                  status === "cancelling"
                 }
               >
                 {sending ? "Sending..." : <Send size={14} />}
@@ -694,25 +705,9 @@ function groupTiming(
 }
 
 function LocalTime({ value }: { value: string }) {
-  const label = useSyncExternalStore(
-    subscribeTimezone,
-    () => {
-      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      return new Date(value).toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-        timeZone: zone,
-      });
-    },
-    () => "...",
-  );
   return (
-    <time dateTime={value} title={new Date(value).toISOString()}>
-      {label || "..."}
+    <time dateTime={value} title={formatIstDateTime(value)}>
+      {formatIstTime(value)}
     </time>
   );
-}
-function subscribeTimezone() {
-  return () => {};
 }

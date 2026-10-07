@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import styles from "./repository-sync.module.css";
 import { notifyRepositoryUpdate } from "@/lib/repository-updates";
+import { formatIstTime } from "@/lib/display-time";
 
 export function RepositorySync({ manual = false }: { manual?: boolean }) {
   const router = useRouter();
@@ -30,7 +31,7 @@ export function RepositorySync({ manual = false }: { manual?: boolean }) {
       if (!mounted.current) return;
       setMessage(
         result.installations > 0
-          ? `Synced from GitHub: ${result.repositories} ${result.repositories === 1 ? "repository" : "repositories"}. Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`
+          ? `Synced from GitHub: ${result.repositories} ${result.repositories === 1 ? "repository" : "repositories"}. Updated ${formatIstTime(new Date())}.`
           : "Connect GitHub in Settings to sync repositories.",
       );
       startTransition(() => router.refresh());

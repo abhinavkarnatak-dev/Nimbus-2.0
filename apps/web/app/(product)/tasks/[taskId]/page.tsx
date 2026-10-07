@@ -1,4 +1,5 @@
 import { requireIdentity } from "@/lib/auth";
+import { formatIstTime } from "@/lib/display-time";
 import { getTaskDetail } from "@/lib/task-data";
 import { activityEvents } from "@/lib/conversation-events";
 import { ChangesWorkbench } from "./changes-workbench";
@@ -140,12 +141,7 @@ export default async function TaskPage({
           <span>
             <Clock3 size={14} />
             <small>Last activity</small>
-            <strong>
-              {new Date(data.task.updatedAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </strong>
+            <strong>{formatIstTime(data.task.updatedAt)}</strong>
           </span>
         </div>
       </section>
@@ -180,6 +176,10 @@ export default async function TaskPage({
                 {tab === "files" ? (
                   <FilesWorkbench
                     taskId={taskId}
+                    cacheScope={`${identity.userId}:${identity.organizationId}`}
+                    workspaceVersion={
+                      data.workspace?.lastHeartbeatAt ?? "unavailable"
+                    }
                     path={query.file}
                     line={
                       query.line && /^\d+$/.test(query.line)
@@ -309,13 +309,7 @@ function ActivityPanel({ data }: { data: Detail }) {
                         </span>
                       )}
                     </div>
-                    <time>
-                      {new Date(event.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
-                    </time>
+                    <time>{formatIstTime(event.timestamp, true)}</time>
                   </header>
                 </summary>
                 {event.category === "tool" ? (

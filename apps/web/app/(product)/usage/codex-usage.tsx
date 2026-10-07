@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { formatIstDateTime } from "@/lib/display-time";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import {
   codexLimitReached,
@@ -153,7 +154,7 @@ export function CodexUsage() {
       <footer className="codex-usage-footer">
         <span>
           {usage.updatedAt
-            ? `Last checked: ${new Date(usage.updatedAt).toLocaleString()}`
+            ? `Last checked: ${formatIstDateTime(usage.updatedAt)}`
             : "Limits are provided by your connected Codex account."}
         </span>
         <a
@@ -201,7 +202,7 @@ function LimitWindow({
       />
       <p>
         {value.resetsAt
-          ? `Resets ${new Date(value.resetsAt * 1000).toLocaleString()}`
+          ? `Resets ${formatIstDateTime(value.resetsAt * 1000)}`
           : "Reset time not provided by Codex"}
       </p>
     </div>

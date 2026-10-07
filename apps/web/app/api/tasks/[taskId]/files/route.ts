@@ -46,11 +46,20 @@ export async function GET(
       { status: 409, headers },
     );
   try {
-    if (record.provider === "e2b") await remoteWorkspace(taskId, "sync");
-    const root = await taskFileRoot(nimbusRepositoryRoot(), taskId);
     const url = new URL(request.url);
     const path = url.searchParams.get("path") ?? "";
     const operation = url.searchParams.get("operation") ?? "tree";
+    // Browse the checkpointed mirror. Only a deliberate root refresh exports the
+    // active sandbox; changes retain their existing live-sync behavior.
+    if (
+      record.provider === "e2b" &&
+      (operation === "changes" ||
+        (operation === "tree" &&
+          path === "" &&
+          url.searchParams.get("sync") === "true"))
+    )
+      await remoteWorkspace(taskId, "sync");
+    const root = await taskFileRoot(nimbusRepositoryRoot(), taskId);
     if (operation === "changes")
       return NextResponse.json(await workspaceChanges(root, record.baseRef), {
         headers,

@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Brain, ChevronDown, CircleDot } from "lucide-react";
+import Link from "next/link";
+import { useLaunchModelAvailability } from "./task-launch-form";
 import type { SelectableCodexModel } from "@/lib/codex-models";
 import {
   preferredCodexModel,
@@ -31,6 +33,7 @@ export function ModelPicker({
     models.find((model) => model.id === selection.model) ??
     defaultModel(models);
   const efforts = selected?.supportedReasoningEfforts ?? [];
+  useLaunchModelAvailability(selected?.id);
   const effort =
     selected?.id === selection.model &&
     efforts.some((item) => item.reasoningEffort === selection.effort)
@@ -129,28 +132,32 @@ export function ModelPicker({
         <label className="model-picker-heading" htmlFor={`${panelId}-model`}>
           Model
         </label>
-        <select
-          id={`${panelId}-model`}
-          aria-label="Codex model"
-          value={selected?.id ?? ""}
-          onChange={(event) => {
-            const model = models.find((item) => item.id === event.target.value);
-            setSelection({
-              model: event.target.value,
-              effort: preferredCodexEffort(model),
-            });
-          }}
-        >
-          {models.length ? (
-            models.map((model) => (
+        {models.length ? (
+          <select
+            id={`${panelId}-model`}
+            aria-label="Codex model"
+            value={selected?.id ?? ""}
+            onChange={(event) => {
+              const model = models.find(
+                (item) => item.id === event.target.value,
+              );
+              setSelection({
+                model: event.target.value,
+                effort: preferredCodexEffort(model),
+              });
+            }}
+          >
+            {models.map((model) => (
               <option key={model.id} value={model.id}>
                 {model.label}
               </option>
-            ))
-          ) : (
-            <option value="">Connect Codex to load models</option>
-          )}
-        </select>
+            ))}
+          </select>
+        ) : (
+          <Link className="model-connect-link" href="/integrations">
+            Connect Codex to load models
+          </Link>
+        )}
         <div className="model-effort-section">
           <div className="model-effort-heading">
             <label htmlFor={`${panelId}-effort`}>

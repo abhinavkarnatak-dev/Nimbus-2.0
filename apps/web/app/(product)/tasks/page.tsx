@@ -1,4 +1,5 @@
 import { requireIdentity } from "@/lib/auth";
+import { formatIstDate } from "@/lib/display-time";
 import { listTasks } from "@/lib/task-data";
 import Link from "next/link";
 import { sessionPresentation } from "@/lib/session-presentation";
@@ -73,7 +74,7 @@ export default async function TasksPage() {
                   </td>
                   <td>
                     <time className="muted">
-                      {new Date(task.updatedAt).toLocaleDateString()}
+                      {formatIstDate(task.updatedAt)}
                     </time>
                   </td>
                 </tr>

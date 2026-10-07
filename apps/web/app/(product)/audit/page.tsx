@@ -1,6 +1,7 @@
 import { auditLogs, db, desc, eq } from "@nimbus/database";
 import { requireIdentity } from "@/lib/auth";
 import type { Metadata } from "next";
+import { formatIstDateTime } from "@/lib/display-time";
 
 export const metadata: Metadata = {
   title: "Audit log",
@@ -46,7 +47,7 @@ export default async function AuditPage() {
                   <td className="path">
                     {row.targetType}:{row.targetId}
                   </td>
-                  <td>{new Date(row.createdAt).toLocaleString()}</td>
+                  <td>{formatIstDateTime(row.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

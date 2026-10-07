@@ -1,7 +1,15 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { formatIstDateTime } from "@/lib/display-time";
 import {
   ChevronRight,
   FileCode2,
@@ -13,6 +21,60 @@ import {
 } from "lucide-react";
 import styles from "./files-workbench.module.css";
 import { fileReferenceTarget } from "@/lib/chat-links";
+import {
+  workspaceBrowserCache,
+  WorkspaceBrowserCache,
+} from "@/lib/workspace-browser-cache";
+
+const BrowserContext = createContext<{
+  cache: WorkspaceBrowserCache;
+  version: string;
+} | null>(null);
+const queryKey = (query: Record<string, string>) =>
+  new URLSearchParams(Object.entries(query).sort()).toString();
+function useBrowserResource<T>(taskId: string, query: Record<string, string>) {
+  const context = useContext(BrowserContext)!;
+  const key = queryKey(query);
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    version: string;
+    value?: T;
+    error?: string;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void context.cache
+      .load<T>(key, () =>
+        request<T>(taskId, Object.fromEntries(new URLSearchParams(key))),
+      )
+      .then(
+        (value) => {
+          if (active) setLoaded({ key, version: context.version, value });
+        },
+        (error) => {
+          if (active)
+            setLoaded({
+              key,
+              version: context.version,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Files could not be loaded",
+            });
+        },
+      );
+    // Requests are shared. Unmounting one folder must not abort another consumer.
+    return () => {
+      active = false;
+    };
+  }, [taskId, key, context.cache, context.version]);
+  const current =
+    loaded?.key === key && loaded.version === context.version ? loaded : null;
+  return {
+    value: context.cache.peek<T>(key) ?? current?.value,
+    error: current?.error ?? "",
+  };
+}
 
 interface Entry {
   name: string;
@@ -29,11 +91,13 @@ interface Commit {
 async function request<T>(
   taskId: string,
   query: Record<string, string>,
-  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(
     `/api/tasks/${encodeURIComponent(taskId)}/files?${new URLSearchParams(query)}`,
-    { cache: "no-store", ...(signal ? { signal } : {}) },
+    {
+      cache: "no-store",
+      signal: AbortSignal.timeout(query.sync === "true" ? 300_000 : 30_000),
+    },
   );
   const result = await response.json();
   if (!response.ok)
@@ -47,15 +111,50 @@ export function FilesWorkbench({
   line,
   revision,
   historyPath,
+  cacheScope,
+  workspaceVersion,
 }: {
   taskId: string;
   path?: string | undefined;
   line?: number | undefined;
   revision?: string | undefined;
   historyPath?: string | undefined;
+  cacheScope: string;
+  workspaceVersion: string;
 }) {
   const router = useRouter();
   const [refresh, setRefresh] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
+  const cache = useMemo(
+    () => workspaceBrowserCache(`${cacheScope}:${taskId}`, workspaceVersion),
+    [cacheScope, taskId, workspaceVersion],
+  );
+  const context = useMemo(
+    () => ({ cache, version: `${workspaceVersion}:${refresh}` }),
+    [cache, workspaceVersion, refresh],
+  );
+  async function refreshFiles() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshError("");
+    try {
+      const root = await request<{ entries: Entry[] }>(taskId, {
+        operation: "tree",
+        path: "",
+        sync: "true",
+      });
+      cache.clear();
+      await cache.seed(queryKey({ operation: "tree", path: "" }), root);
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error ? error.message : "Refresh failed",
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  }
   const navigate = (file: string, version?: string) => {
     const query = fileReferenceTarget(file);
     if (version) {
@@ -65,46 +164,56 @@ export function FilesWorkbench({
     router.push(`/tasks/${taskId}?${query}`, { scroll: false });
   };
   return (
-    <section className={styles.browser} aria-label="Repository files">
-      <header className={styles.header}>
-        <strong>Repository files</strong>
-        <button
-          type="button"
-          aria-label="Refresh workspace files"
-          onClick={() => setRefresh((value) => value + 1)}
-        >
-          <RefreshCw size={15} />
-        </button>
-      </header>
-      <div className={styles.layout}>
-        <nav className={styles.tree} aria-label="Repository file structure">
-          <Directory
-            key={refresh}
-            taskId={taskId}
-            path=""
-            selected={path}
-            onSelect={navigate}
-          />
-        </nav>
-        {path ? (
-          <FileInspector
-            key={`${taskId}:${historyPath ?? path}:${refresh}`}
-            taskId={taskId}
-            path={path}
-            historyPath={historyPath ?? path}
-            line={line}
-            revision={revision}
-            refresh={refresh}
-            onVersion={navigate}
-          />
-        ) : (
-          <div className={styles.empty}>
-            Choose a file from the repository tree or click a file reference in
-            chat.
-          </div>
+    <BrowserContext.Provider value={context}>
+      <section className={styles.browser} aria-label="Repository files">
+        <header className={styles.header}>
+          <strong>Repository files</strong>
+          <button
+            type="button"
+            aria-label="Refresh workspace files"
+            disabled={refreshing}
+            onClick={() => void refreshFiles()}
+          >
+            {refreshing ? (
+              <LoaderCircle size={15} className={styles.spinner} />
+            ) : (
+              <RefreshCw size={15} />
+            )}
+          </button>
+        </header>
+        {refreshError && (
+          <p role="alert" className={styles.error}>
+            {refreshError}
+          </p>
         )}
-      </div>
-    </section>
+        <div className={styles.layout}>
+          <nav className={styles.tree} aria-label="Repository file structure">
+            <Directory
+              taskId={taskId}
+              path=""
+              selected={path}
+              onSelect={navigate}
+            />
+          </nav>
+          {path ? (
+            <FileInspector
+              key={`${taskId}:${historyPath ?? path}:${context.version}`}
+              taskId={taskId}
+              path={path}
+              historyPath={historyPath ?? path}
+              line={line}
+              revision={revision}
+              onVersion={navigate}
+            />
+          ) : (
+            <div className={styles.empty}>
+              Choose a file from the repository tree or click a file reference
+              in chat.
+            </div>
+          )}
+        </div>
+      </section>
+    </BrowserContext.Provider>
   );
 }
 
@@ -119,21 +228,11 @@ function Directory({
   selected: string;
   onSelect: (path: string) => void;
 }) {
-  const [entries, setEntries] = useState<Entry[] | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const controller = new AbortController();
-    request<{ entries: Entry[] }>(
-      taskId,
-      { operation: "tree", path },
-      controller.signal,
-    )
-      .then((result) => setEntries(result.entries))
-      .catch((failure: Error) => {
-        if (!controller.signal.aborted) setError(failure.message);
-      });
-    return () => controller.abort();
-  }, [taskId, path]);
+  const { value, error } = useBrowserResource<{ entries: Entry[] }>(taskId, {
+    operation: "tree",
+    path,
+  });
+  const entries = value?.entries;
   if (error)
     return (
       <p role="alert" className={styles.error}>
@@ -189,14 +288,21 @@ function DirectoryBranch({
   selected: string;
   onSelect: (path: string) => void;
 }) {
-  const [open, setOpen] = useState(selected.startsWith(`${entry.path}/`));
+  const { cache } = useContext(BrowserContext)!;
+  const [open, setOpen] = useState(
+    () =>
+      cache.folders.get(entry.path) ?? selected.startsWith(`${entry.path}/`),
+  );
   return (
     <>
       <button
         type="button"
         aria-expanded={open}
         title={entry.path}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          cache.folders.set(entry.path, !open);
+          setOpen(!open);
+        }}
       >
         <ChevronRight
           size={12}
@@ -223,7 +329,6 @@ function FileInspector({
   historyPath,
   line,
   revision,
-  refresh,
   onVersion,
 }: {
   taskId: string;
@@ -231,17 +336,15 @@ function FileInspector({
   historyPath: string;
   line?: number | undefined;
   revision?: string | undefined;
-  refresh: number;
   onVersion: (path: string, revision?: string) => void;
 }) {
-  const key = `${path}:${revision ?? "working"}:${refresh}`;
-  const [loaded, setLoaded] = useState<{
-    key: string;
-    content: string | null;
-    error: string;
-  } | null>(null);
-  const content = loaded?.key === key ? loaded.content : null;
-  const error = loaded?.key === key ? loaded.error : "";
+  const { value, error } = useBrowserResource<{ content: string }>(taskId, {
+    operation: "read",
+    path,
+    ...(revision ? { revision } : {}),
+  });
+  const content = value?.content ?? null;
+  const { cache } = useContext(BrowserContext)!;
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Commit[]>([]);
   const [historyError, setHistoryError] = useState("");
@@ -249,38 +352,23 @@ function FileInspector({
   const [next, setNext] = useState<number | null>(0);
   const activeLine = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const controller = new AbortController();
-    request<{ content: string }>(
-      taskId,
-      { operation: "read", path, ...(revision ? { revision } : {}) },
-      controller.signal,
-    )
-      .then((result) => {
-        if (!controller.signal.aborted)
-          setLoaded({ key, content: result.content, error: "" });
-      })
-      .catch((failure: Error) => {
-        if (!controller.signal.aborted) {
-          setLoaded({ key, content: null, error: failure.message });
-        }
-      });
-    return () => controller.abort();
-  }, [taskId, path, revision, refresh, key]);
-  useEffect(() => {
     activeLine.current?.scrollIntoView({ block: "nearest" });
   }, [content, line]);
   async function loadHistory() {
     if (historyBusy || next === null) return;
     setHistoryBusy(true);
     try {
-      const result = await request<{
-        entries: Commit[];
-        nextOffset: number | null;
-      }>(taskId, {
+      const query = {
         operation: "history",
         path: historyPath,
         offset: String(next),
-      });
+      };
+      const result = await cache.load(queryKey(query), () =>
+        request<{
+          entries: Commit[];
+          nextOffset: number | null;
+        }>(taskId, query),
+      );
       setHistory((current) => [...current, ...result.entries]);
       setNext(result.nextOffset);
       setHistoryError("");
@@ -333,7 +421,7 @@ function FileInspector({
               <strong>{commit.subject}</strong>
               <small>
                 {commit.revision.slice(0, 8)} · {commit.author} ·{" "}
-                {new Date(commit.date).toLocaleString()}
+                {formatIstDateTime(commit.date)}
               </small>
             </button>
           ))}

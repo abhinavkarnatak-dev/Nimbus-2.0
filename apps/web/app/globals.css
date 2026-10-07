@@ -675,6 +675,32 @@ select:focus-visible {
 .launch-button:hover {
   background: var(--brand-purple-light);
 }
+.launch-action {
+  display: inline-flex;
+  margin-left: auto;
+}
+.launch-action .launch-button {
+  margin-left: 0;
+}
+.launch-action:has(button:disabled) {
+  cursor: not-allowed;
+}
+.launch-action .launch-button:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.model-connect-link {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--brand-purple);
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.model-connect-link:hover {
+  text-decoration: underline;
+}
 
 .run-section {
   margin-top: 36px;
@@ -1232,8 +1258,11 @@ select:focus-visible {
   font: inherit;
   font-size: 15px;
   line-height: 1.5;
-  resize: vertical;
-  min-height: 72px;
+  resize: none;
+  height: 100px;
+  min-height: 100px;
+  max-height: 100px;
+  overflow-y: auto;
 }
 
 .followup-box textarea:focus-visible {
