@@ -498,3 +498,353 @@ export const commandRuns = pgTable("command_runs", {
   startedAt: utc("started_at").notNull().defaultNow(),
   completedAt: utc("completed_at"),
   durationMs: integer("duration_ms"),
+});
+
+export const fileChanges = pgTable("file_changes", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  path: text("path").notNull(),
+  previousPath: text("previous_path"),
+  status: text("status").notNull(),
+  additions: integer("additions").notNull().default(0),
+  deletions: integer("deletions").notNull().default(0),
+  patchObjectKey: text("patch_object_key"),
+  ...timestamps,
+});
+
+export const artifacts = pgTable("artifacts", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => tasks.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  objectKey: text("object_key").notNull(),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+  checksum: text("checksum").notNull(),
+  createdAt: utc("created_at").notNull().defaultNow(),
+});
+
+export const pullRequests = pgTable(
+  "pull_requests",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull().default(1),
+    githubRepositoryId: bigint("github_repository_id", { mode: "number" }),
+    number: integer("number"),
+    branchName: text("branch_name").notNull(),
+    title: text("title").notNull(),
+    state: text("state").notNull(),
+    url: text("url"),
+    headSha: text("head_sha"),
+    mergeable: boolean("mergeable"),
+    reviewState: text("review_state"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("pull_requests_task_generation_unique").on(
+      table.taskId,
+      table.generation,
+    ),
+    uniqueIndex("pull_requests_task_open_unique")
+      .on(table.taskId)
+      .where(sql`${table.state} = 'open'`),
+  ],
+);
+
+// Notification storage is independent of task execution and PR publishing.
+export const emailNotificationSettings = pgTable(
+  "email_notification_settings",
+  {
+    id: text("id").primaryKey(),
+    enabledAt: utc("enabled_at").notNull().defaultNow(),
+  },
+);
+export const emailNotifications = pgTable(
+  "email_notifications",
+  {
+    id: text("id").primaryKey(),
+    pullRequestId: text("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    availableAt: utc("available_at").notNull().defaultNow(),
+    leaseUntil: utc("lease_until"),
+    leaseToken: text("lease_token"),
+    firstAttemptAt: utc("first_attempt_at"),
+    sentAt: utc("sent_at"),
+    providerMessageId: text("provider_message_id"),
+    lastError: text("last_error"),
+    ...timestamps,
+  },
+  (table) => [
+    index("email_notifications_pending_idx").on(
+      table.status,
+      table.availableAt,
+    ),
+    check(
+      "email_notifications_event_valid",
+      sql`${table.event} IN ('created','merged','closed')`,
+    ),
+    check(
+      "email_notifications_status_valid",
+      sql`${table.status} IN ('pending','sending','sent','failed')`,
+    ),
+  ],
+);
+
+export const skills = pgTable("skills", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
+  ownerUserId: text("owner_user_id").references(() => users.id, {
+    onDelete: "cascade",
+  }),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  visibility: text("visibility").notNull().default("private"),
+  summary: text("summary").notNull().default(""),
+  disabledAt: utc("disabled_at"),
+  ...timestamps,
+});
+
+export const skillVersions = pgTable(
+  "skill_versions",
+  {
+    id: text("id").primaryKey(),
+    skillId: text("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    checksum: text("checksum").notNull(),
+    objectKey: text("object_key").notNull(),
+    frontmatter: jsonb("frontmatter").notNull(),
+    requestedCapabilities: jsonb("requested_capabilities")
+      .notNull()
+      .default([]),
+    publishedAt: utc("published_at"),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("skill_versions_number_unique").on(
+      table.skillId,
+      table.version,
+    ),
+  ],
+);
+
+export const skillAssignments = pgTable(
+  "skill_assignments",
+  {
+    id: text("id").primaryKey(),
+    skillVersionId: text("skill_version_id")
+      .notNull()
+      .references(() => skillVersions.id, { onDelete: "cascade" }),
+    scopeType: text("scope_type").notNull(),
+    scopeId: text("scope_id").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("skill_assignments_scope_unique").on(
+      table.skillVersionId,
+      table.scopeType,
+      table.scopeId,
+    ),
+  ],
+);
+
+export const memories = pgTable(
+  "memories",
+  {
+    id: text("id").primaryKey(),
+    scopeType: text("scope_type").notNull(),
+    scopeId: text("scope_id").notNull(),
+    kind: text("kind").notNull(),
+    content: text("content").notNull(),
+    summary: text("summary").notNull(),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    sourceTaskId: text("source_task_id").references(() => tasks.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: utc("expires_at"),
+    deletedAt: utc("deleted_at"),
+    ...timestamps,
+  },
+  (table) => [index("memories_scope_idx").on(table.scopeType, table.scopeId)],
+);
+
+export const schedules = pgTable("schedules", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  schedule: text("schedule").notNull(),
+  timezone: text("timezone").notNull(),
+  payload: jsonb("payload").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  ...timestamps,
+});
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    status: text("status").notNull(),
+    payload: jsonb("payload").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    sentAt: utc("sent_at"),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("notifications_idempotency_unique").on(table.idempotencyKey),
+  ],
+);
+
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    deliveryId: text("delivery_id").notNull(),
+    signatureValid: boolean("signature_valid").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload"),
+    status: text("status").notNull(),
+    receivedAt: utc("received_at").notNull().defaultNow(),
+    processedAt: utc("processed_at"),
+    errorClassification: text("error_classification"),
+  },
+  (table) => [
+    uniqueIndex("webhook_deliveries_provider_unique").on(
+      table.provider,
+      table.deliveryId,
+    ),
+  ],
+);
+
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull(),
+    key: text("key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    response: jsonb("response"),
+    expiresAt: utc("expires_at").notNull(),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idempotency_keys_scope_unique").on(
+      table.organizationId,
+      table.scope,
+      table.key,
+    ),
+  ],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    actorType: text("actor_type").notNull(),
+    actorId: text("actor_id"),
+    action: text("action").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    metadata: jsonb("metadata").notNull().default({}),
+    correlationId: text("correlation_id").notNull(),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("audit_logs_org_time_idx").on(table.organizationId, table.createdAt),
+  ],
+);
+
+export const usageRecords = pgTable("usage_records", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  taskId: text("task_id").references(() => tasks.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(),
+  quantity: bigint("quantity", { mode: "number" }).notNull(),
+  unit: text("unit").notNull(),
+  recordedAt: utc("recorded_at").notNull().defaultNow(),
+});
+
+export const oauthAuthorizationStates = pgTable(
+  "oauth_authorization_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: text("provider").notNull(),
+    stateHash: text("state_hash").notNull(),
+    encryptedVerifier: text("encrypted_verifier").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    expiresAt: utc("expires_at").notNull(),
+    consumedAt: utc("consumed_at"),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("oauth_state_hash_unique").on(table.stateHash)],
+);
+
+export const githubAuthorizations = pgTable("github_authorizations", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  browserHash: text("browser_hash").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  expiresAt: utc("expires_at").notNull(),
+  consumedAt: utc("consumed_at"),
+});
+
+export const outbox = pgTable(
+  "outbox",
+  {
+    id: text("id").primaryKey(),
+    aggregateType: text("aggregate_type").notNull(),
+    aggregateId: text("aggregate_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    availableAt: utc("available_at").notNull().defaultNow(),
+    processedAt: utc("processed_at"),
+    createdAt: utc("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("outbox_available_idx").on(table.processedAt, table.availableAt),
+  ],
+);
