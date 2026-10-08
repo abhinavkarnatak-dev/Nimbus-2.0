@@ -60,7 +60,7 @@ const server = createServer((request, response) => {
   if (!name) {
     response.setHeader("content-type", "text/html");
     response.end(
-      '<html><head><script>window.process={env:{NODE_ENV:"production"},browser:true}</script><link rel="stylesheet" href="/globals.css"><link rel="stylesheet" href="/stdin.css"><style>body{margin:20px}.app-shell{display:block;font:15px Arial}.agent-workspace{height:520px}</style></head><body class="app-shell"><div id="root"></div><script type="module" src="/stdin.js"></script></body></html>',
+      '<html><head><script>window.process={env:{NODE_ENV:"production"},browser:true}</script><style>button{background:transparent;border:0}</style><link rel="stylesheet" href="/globals.css"><link rel="stylesheet" href="/stdin.css"><style>body{margin:20px}.app-shell{display:block;font:15px Arial}.agent-workspace{height:520px}</style></head><body class="app-shell"><div id="root"></div><script type="module" src="/stdin.js"></script></body></html>',
     );
   } else if (assets.has(name)) {
     response.setHeader(
@@ -121,6 +121,10 @@ try {
     });
   });
   await page.goto(origin);
+  const trigger = page.getByRole("button", {
+    name: "Follow-up model and thinking effort",
+  });
+  await trigger.click();
   const picker = page.getByRole("combobox", { name: "Follow-up model" });
   await picker
     .locator('option[value="model-b"]')
@@ -128,10 +132,15 @@ try {
   assert.equal(await picker.isEnabled(), true);
   assert.equal(await picker.inputValue(), "model-a");
   await picker.selectOption("model-b");
-  const effort = page.getByRole("combobox", {
+  const effort = page.getByRole("slider", {
     name: "Follow-up thinking effort",
   });
-  await effort.selectOption("low");
+  await effort.focus();
+  await effort.press("Home");
+  assert.equal(await effort.getAttribute("aria-valuetext"), "low");
+  await effort.press("Escape");
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+  await trigger.click();
   const input = page.getByRole("textbox", { name: "Follow-up message" });
   await input.fill("Continue with this model");
   await input.press("Enter");
@@ -142,16 +151,20 @@ try {
   assert.equal(requests[0].model, "model-b");
   assert.equal(requests[0].reasoningEffort, "low");
   assert.equal(requests[0].content, "Continue with this model");
-  assert.equal(await picker.isDisabled(), true);
-  assert.equal(await effort.isDisabled(), true);
+  assert.equal(await trigger.isDisabled(), true);
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
   await page.evaluate(() => window.taskState("running"));
-  assert.equal(await picker.isDisabled(), true);
+  assert.equal(await trigger.isDisabled(), true);
   await page.evaluate(() => window.taskState("completed"));
-  await picker.waitFor();
-  await page.waitForFunction(() => !document.querySelector("select").disabled);
+  await page.waitForFunction(
+    () => !document.querySelector(".model-picker-trigger").disabled,
+  );
+  await trigger.click();
   await picker.selectOption("model-a");
-  assert.equal(await effort.inputValue(), "medium");
-  await effort.selectOption("high");
+  assert.equal(await effort.getAttribute("aria-valuetext"), "medium");
+  await effort.focus();
+  await effort.press("End");
+  assert.equal(await effort.getAttribute("aria-valuetext"), "high");
   await input.fill("Line one");
   await input.press("Shift+Enter");
   await input.press("a");
@@ -161,17 +174,33 @@ try {
   await input.press("Enter");
   await page.getByRole("alert").waitFor();
   assert.equal(await input.inputValue(), "Line one\na");
-  assert.equal(await picker.isEnabled(), true);
+  assert.equal(await trigger.isEnabled(), true);
   assert.equal(requests[1].model, "model-a");
   assert.equal(requests[1].reasoningEffort, "high");
+  await trigger.click();
   assert.equal(await effort.isEnabled(), true);
   await mkdir(resolve(webRoot, "../../test-results"), { recursive: true });
   await page.screenshot({
     path: resolve(webRoot, "../../test-results/followup-model-picker.png"),
   });
+  await page.setViewportSize({ width: 390, height: 700 });
+  const panelBounds = await page.locator(".model-picker-panel").boundingBox();
+  assert.ok(
+    panelBounds &&
+      panelBounds.x >= 0 &&
+      panelBounds.x + panelBounds.width <= 390,
+  );
+  const triggerBounds = await trigger.boundingBox();
+  assert.ok(panelBounds.y + panelBounds.height <= triggerBounds.y);
+  await page.screenshot({
+    path: resolve(
+      webRoot,
+      "../../test-results/followup-model-picker-mobile.png",
+    ),
+  });
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: real follow-up composer selects models, locks during work, sends on Enter, preserves Shift+Enter and recovers rejected sends.",
+    "PASS: unified follow-up picker selects models and effort via slider, opens upward, handles Escape and mobile sizing, locks during work, and preserves sending behavior.",
   );
 } finally {
   await browser.close();

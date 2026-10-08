@@ -58,8 +58,10 @@ describe("inline chat progress", () => {
     expect(idle).toContain('value="other"');
     expect(idle.match(/<select[^>]*>/)?.[0]).not.toContain("disabled");
     expect(idle).toContain('aria-label="Follow-up thinking effort"');
-    expect(idle).toContain('value="high" selected=""');
-    expect(idle.match(/<select[^>]*>/g)?.[1]).not.toContain("disabled");
+    expect(idle).toContain('type="range"');
+    expect(idle).toContain('aria-valuetext="high"');
+    expect(idle.match(/<select[^>]*>/g)).toHaveLength(1);
+    expect(idle).toContain('aria-label="Follow-up model and thinking effort"');
     for (const initialStatus of [
       "queued",
       "provisioning",
@@ -70,7 +72,9 @@ describe("inline chat progress", () => {
         <LiveAgentWorkspace {...props} initialStatus={initialStatus} />,
       );
       expect(busy.match(/<select[^>]*>/)?.[0]).toContain("disabled");
-      expect(busy.match(/<select[^>]*>/g)?.[1]).toContain("disabled");
+      expect(busy.match(/<input[^>]*type="range"[^>]*>/)?.[0]).toContain(
+        "disabled",
+      );
     }
   });
   it("shows the actual website during search and retains results and search detail after completion", () => {

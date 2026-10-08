@@ -776,21 +776,25 @@
   font-size: 12px;
 }
 
-.modelPicker select {
-  max-width: min(280px, 100%);
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel-subtle);
-  color: var(--ink);
-  font: inherit;
+.followupPicker {
+  max-width: 100%;
 }
-
-.modelPicker select:disabled {
+.followupPicker > button {
+  color: var(--ink);
+  background: var(--panel-subtle);
+  border-color: var(--line-strong);
+}
+.followupPicker :global(.model-effort-badge) {
+  color: var(--brand-purple);
+  border-color: var(--line-strong);
+}
+.followupPicker > button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
-
-.modelPickerLabel {
-  flex-shrink: 0;
+.followupPicker .modelPickerPanel {
+  top: auto;
+  bottom: calc(100% + 10px);
+  max-height: min(360px, 60dvh);
+  overflow-y: auto;
 }

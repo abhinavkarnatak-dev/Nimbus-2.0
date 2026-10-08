@@ -34,6 +34,7 @@ import { SkillPrompt } from "../../skill-prompt";
 import { formatIstTime, formatIstDateTime } from "@/lib/display-time";
 import { useCodexModels } from "@/lib/use-codex-availability";
 import { preferredCodexEffort } from "@nimbus/codex/model-policy";
+import { FollowupModelPicker } from "./followup-model-picker";
 
 interface LiveTaskEvent {
   id: string;
@@ -368,6 +369,19 @@ export function LiveAgentWorkspace({
     }
   };
 
+  const settingsLocked =
+    sending ||
+    pendingAfter !== null ||
+    ![
+      "completed",
+      "failed",
+      "cancelled",
+      "paused",
+      "pr_open",
+      "awaiting_user",
+    ].includes(status) ||
+    Boolean(archivedAt);
+
   return (
     <div
       className={`agent-workspace ${styles.workspace} ${workbenchOpen ? "" : "panel-closed"}`}
@@ -593,91 +607,32 @@ export function LiveAgentWorkspace({
               </button>
             )}
             <div className={styles.modelPicker}>
-              <span className={styles.modelPickerLabel}>Model</span>
-              <select
-                aria-label="Follow-up model"
-                value={selectedModel}
-                disabled={
-                  !codexAvailable ||
-                  sending ||
-                  pendingAfter !== null ||
-                  ![
-                    "completed",
-                    "failed",
-                    "cancelled",
-                    "paused",
-                    "pr_open",
-                    "awaiting_user",
-                  ].includes(status) ||
-                  Boolean(archivedAt)
-                }
-                title={
-                  canStop
-                    ? "Model switching is available after the current request finishes"
-                    : "Model for your next message"
-                }
-                onChange={(event) =>
+              <FollowupModelPicker
+                key={settingsLocked ? "locked" : "available"}
+                models={models}
+                model={selectedModel}
+                effort={selectedEffort}
+                disabled={settingsLocked}
+                onModelChange={(nextModel) =>
                   setModelChoice({
                     base: model,
                     baseEffort: reasoningEffort,
-                    selected: event.target.value,
+                    selected: nextModel,
                     effort:
                       preferredCodexEffort(
-                        models.find((item) => item.id === event.target.value),
+                        models.find((item) => item.id === nextModel),
                       ) || null,
                   })
                 }
-              >
-                {!modelAvailable && (
-                  <option value={selectedModel}>
-                    {codexAvailable ? "Select a model" : "Connect Codex"}
-                  </option>
-                )}
-                {models.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-              <span className={styles.modelPickerLabel}>Thinking effort</span>
-              <select
-                aria-label="Follow-up thinking effort"
-                value={selectedEffort ?? ""}
-                disabled={
-                  !modelAvailable ||
-                  efforts.length === 0 ||
-                  sending ||
-                  pendingAfter !== null ||
-                  ![
-                    "completed",
-                    "failed",
-                    "cancelled",
-                    "paused",
-                    "pr_open",
-                    "awaiting_user",
-                  ].includes(status) ||
-                  Boolean(archivedAt)
-                }
-                title="Thinking effort for your next message; available after the current request finishes"
-                onChange={(event) =>
+                onEffortChange={(nextEffort) =>
                   setModelChoice({
                     base: model,
                     baseEffort: reasoningEffort,
                     selected: selectedModel,
-                    effort: event.target.value || null,
+                    effort: nextEffort,
                   })
                 }
-              >
-                <option value="">Model default</option>
-                {efforts.map((item) => (
-                  <option
-                    key={item.reasoningEffort}
-                    value={item.reasoningEffort}
-                  >
-                    {item.reasoningEffort}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
           </form>
         </div>
