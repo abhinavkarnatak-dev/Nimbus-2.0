@@ -7,6 +7,7 @@ const environment = {
   AUTH_URL: "https://nimbus.example",
   NIMBUS_DEVICE_AUTH_ENABLED: "true",
   NIMBUS_EXECUTOR_SECRET: "a".repeat(64),
+  NIMBUS_CREDENTIAL_KEY: "c".repeat(64),
   NIMBUS_CODEX_HOME: "/persistent/codex",
   DATABASE_URL: "postgres://test",
   AUTH_GOOGLE_SECRET: "private",
@@ -39,6 +40,8 @@ describe("combined runtime configuration", () => {
     );
     assert.equal(config.executorEnvironment.NIMBUS_CODEX_HOME, undefined);
     assert.equal(config.executorEnvironment.E2B_API_KEY, "sandbox");
+    // The credential key stays in the web process.
+    assert.equal(config.executorEnvironment.NIMBUS_CREDENTIAL_KEY, undefined);
   });
   it("fails closed for missing opt-in, storage, shared secret, and invalid ports", () => {
     for (const overrides of [
@@ -47,6 +50,8 @@ describe("combined runtime configuration", () => {
       { NIMBUS_DEVICE_AUTH_ENABLED: "false" },
       { NIMBUS_CODEX_HOME: "relative" },
       { NIMBUS_EXECUTOR_SECRET: "short" },
+      { NIMBUS_CREDENTIAL_KEY: "short" },
+      { NIMBUS_CREDENTIAL_KEY: "" },
       { AUTH_URL: "http://nimbus.example" },
       { PORT: "3020" },
       { EXECUTOR_PORT: "NaN" },
