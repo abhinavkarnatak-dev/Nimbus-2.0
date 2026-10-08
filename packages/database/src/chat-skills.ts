@@ -13,8 +13,9 @@ export function ownedSkillScope(organizationId: string, userId: string) {
 export async function listChatSkills(
   organizationId: string,
   userId: string,
+  connection?: Pick<ReturnType<typeof db>, "select">,
 ): Promise<SkillSnapshot[]> {
-  return db()
+  return (connection ?? db())
     .select({
       id: skills.id,
       name: skills.name,
@@ -44,9 +45,10 @@ export async function resolveChatSkills(
   organizationId: string,
   userId: string,
   ids: string[],
+  connection?: Pick<ReturnType<typeof db>, "select">,
 ): Promise<SkillSnapshot[] | null> {
   if (!ids.length) return [];
-  const rows = await db()
+  const rows = await (connection ?? db())
     .select({
       id: skills.id,
       name: skills.name,

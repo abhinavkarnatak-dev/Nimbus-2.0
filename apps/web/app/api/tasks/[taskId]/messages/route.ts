@@ -5,6 +5,7 @@ import {
   auditLogs,
   db,
   eq,
+  inArray,
   outbox,
   repositories,
   sql,
@@ -19,12 +20,23 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { assertTaskTransition, TaskStatusSchema } from "@nimbus/shared";
 import { skillIdsSchema } from "@nimbus/shared";
+import {
+  getSelectableCodexModels,
+  isSelectableEffort,
+} from "@/lib/codex-models";
+import { preferredCodexEffort } from "@nimbus/codex/model-policy";
 
-const inputSchema = z.object({
-  content: z.string().trim().min(1).max(8000),
-  idempotencyKey: z.string().uuid(),
-  skillIds: skillIdsSchema.optional(),
-});
+const inputSchema = z
+  .object({
+    content: z.string().trim().min(1).max(8000),
+    idempotencyKey: z.string().uuid(),
+    skillIds: skillIdsSchema.optional(),
+    model: z.string().trim().min(1).max(200).optional(),
+    reasoningEffort: z.string().trim().min(1).max(40).nullable().optional(),
+  })
+  .refine(
+    (input) => input.reasoningEffort === undefined || input.model !== undefined,
+  );
 
 export async function POST(
   request: Request,
@@ -63,6 +75,18 @@ export async function POST(
     );
   const { taskId } = await context.params;
   const input = parsed.data;
+  // Catalog refresh failure must not silently choose a different model.
+  const models = input.model
+    ? await getSelectableCodexModels(
+        identity.userId,
+        identity.organizationId,
+      ).catch(() => null)
+    : [];
+  if (!models)
+    return NextResponse.json(
+      { error: "Could not validate Codex models. Try again." },
+      { status: 503 },
+    );
   const result = await db().transaction(async (tx) => {
     const [task] = await tx
       .select()
@@ -104,6 +128,10 @@ export async function POST(
       );
     if (existing)
       return existing.content === input.content &&
+        (input.model === undefined ||
+          existing.requestedModel === input.model) &&
+        (input.reasoningEffort === undefined ||
+          existing.requestedReasoningEffort === input.reasoningEffort) &&
         (input.skillIds === undefined ||
           JSON.stringify(existing.selectedSkills.map((skill) => skill.id)) ===
             JSON.stringify(input.skillIds))
@@ -112,6 +140,104 @@ export async function POST(
             status: 409,
             error: "Request key was already used for another message",
           };
+    let selected = input.model
+      ? models.find((model) => model.id === input.model)
+      : undefined;
+    if (input.model && !selected)
+      return {
+        status: 400,
+        error: "Selected Codex model is not in the current account catalog",
+      };
+    // Shared tasks still execute through their original owner's Codex account.
+    // A collaborator's own catalog must not authorize an unavailable owner model.
+    if (
+      selected &&
+      task.createdByUserId &&
+      task.createdByUserId !== identity.userId
+    ) {
+      const executionModels = await getSelectableCodexModels(
+        task.createdByUserId,
+        identity.organizationId,
+        tx,
+      ).catch(() => null);
+      if (!executionModels)
+        return {
+          status: 503,
+          error:
+            "Could not validate the session owner's Codex models. Try again.",
+        };
+      const executionModel = executionModels.find(
+        (model) => model.id === selected!.id,
+      );
+      if (!executionModel)
+        return {
+          status: 400,
+          error:
+            "Selected model is unavailable for this session's Codex account",
+        };
+      selected = executionModel;
+    }
+    if (
+      selected &&
+      process.env.NIMBUS_CODING_PROVIDER === "fake" &&
+      selected.id !== "fake-codex-test-provider"
+    )
+      return {
+        status: 503,
+        error: "The simulation provider cannot execute this Codex model",
+      };
+    const changingModel =
+      input.model !== undefined && input.model !== task.requestedModel;
+    if (
+      input.reasoningEffort != null &&
+      selected &&
+      !isSelectableEffort(selected, input.reasoningEffort)
+    )
+      return {
+        status: 400,
+        error: "Selected thinking effort is unavailable for this model",
+      };
+    const requestedModel = input.model ?? task.requestedModel;
+    const requestedReasoningEffort =
+      input.reasoningEffort !== undefined
+        ? input.reasoningEffort
+        : changingModel && selected
+          ? task.requestedReasoningEffort &&
+            isSelectableEffort(selected, task.requestedReasoningEffort)
+            ? task.requestedReasoningEffort
+            : preferredCodexEffort(selected) || null
+          : task.requestedReasoningEffort;
+    if (
+      changingModel ||
+      requestedReasoningEffort !== task.requestedReasoningEffort
+    ) {
+      const [inflight] = await tx
+        .select({ id: taskMessages.id })
+        .from(taskMessages)
+        .where(
+          and(
+            eq(taskMessages.taskId, taskId),
+            inArray(taskMessages.status, ["queued", "running"]),
+          ),
+        )
+        .limit(1);
+      if (
+        inflight ||
+        ![
+          "completed",
+          "failed",
+          "cancelled",
+          "paused",
+          "pr_open",
+          "awaiting_user",
+        ].includes(task.status)
+      )
+        return {
+          status: 409,
+          error:
+            "Wait for the current request to finish before changing model or thinking effort",
+        };
+    }
     const pending = await tx
       .select({ id: taskMessages.id })
       .from(taskMessages)
@@ -127,7 +253,7 @@ export async function POST(
     const messageId = `msg_${randomUUID().replaceAll("-", "")}`;
     const available =
       input.skillIds === undefined
-        ? await listChatSkills(identity.organizationId, identity.userId)
+        ? await listChatSkills(identity.organizationId, identity.userId, tx)
         : [];
     const ids =
       input.skillIds ??
@@ -138,6 +264,7 @@ export async function POST(
       identity.organizationId,
       identity.userId,
       ids,
+      tx,
     );
     if (!selectedSkills)
       return {
@@ -146,7 +273,7 @@ export async function POST(
       };
     await tx
       .update(tasks)
-      .set({ selectedSkillIds: ids })
+      .set({ selectedSkillIds: ids, requestedModel, requestedReasoningEffort })
       .where(eq(tasks.id, taskId));
     await tx.insert(taskMessages).values({
       id: messageId,
@@ -154,6 +281,8 @@ export async function POST(
       userId: identity.userId,
       content: input.content,
       selectedSkills,
+      requestedModel,
+      requestedReasoningEffort,
       idempotencyKey: input.idempotencyKey,
     });
     const idle = [

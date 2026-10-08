@@ -5,3 +5,4 @@ export * from "./app-server-provider.js";
 export * from "./local-bridge.js";
 export * from "./rate-limits.js";
 export * from "./device-auth-policy.js";
+export { messageModelSettings } from "./model-policy.js";

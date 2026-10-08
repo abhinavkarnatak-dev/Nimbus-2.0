@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { NextResponse } from "next/server";
 import { preserveWorkspaceArtifacts } from "@/lib/task-artifacts";
 import { nimbusRepositoryRoot } from "@/lib/repository-root";
-import { localBridgeKey, validBridgeKey } from "@nimbus/codex";
+import { localBridgeKey, validBridgeKey, messageModelSettings } from "@nimbus/codex";
 import {
   and,
   codexThreads,
@@ -212,6 +212,7 @@ export async function POST(
             ),
           {
             threadId: thread.providerThreadId,
+            ...messageModelSettings(message, task),
             workspacePath: root,
             environmentId: environment.environmentId,
             prompt: withAgentInstructions(
@@ -226,9 +227,6 @@ export async function POST(
               ),
               savedInstructions,
             ),
-            ...(task.requestedReasoningEffort
-              ? { reasoningEffort: task.requestedReasoningEffort }
-              : {}),
             signal: stop.signal,
           },
           message.content,

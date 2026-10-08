@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   LocalConnectedCodexProvider,
+  messageModelSettings,
   type CodingAgentProvider,
 } from "@nimbus/codex";
 import {
@@ -402,7 +403,8 @@ export class TaskWorker {
           "The previous environment expired. Saved files and branch state were restored for this session.",
           "The same conversation and pull request history are retained.",
         );
-      const model = task.requestedModel ?? this.#fallbackModel;
+      const turnSettings = messageModelSettings(message, task);
+      const model = turnSettings.model ?? this.#fallbackModel;
       if (repositoryMode && provider instanceof LocalConnectedCodexProvider) {
         await event(
           "running",
@@ -433,8 +435,14 @@ export class TaskWorker {
       // thread. The bridge replaces its active slot after workspace provisioning.
       const existingThread =
         repositoryMode && !storedThread?.workspaceId ? undefined : storedThread;
-      if (existingThread && existingThread.model !== model)
+      if (
+        existingThread &&
+        existingThread.model !== model &&
+        !message.requestedModel
+      )
         throw new Error("Thread model mismatch");
+      // Codex supports a per-turn override on the same thread. Keep the thread,
+      // workspace, and all execution boundaries; never restart for a model change.
       let threadId =
         existingThread?.providerThreadId ??
         (await provider.startThread({
@@ -497,8 +505,8 @@ export class TaskWorker {
         provider: provider.kind,
         input: turnPrompt.slice(0, 100_000),
         output: "",
-        ...(task.requestedReasoningEffort
-          ? { reasoningEffort: task.requestedReasoningEffort }
+        ...(turnSettings.reasoningEffort
+          ? { reasoningEffort: turnSettings.reasoningEffort }
           : {}),
         startedAt: Date.now(),
       };
@@ -521,12 +529,10 @@ export class TaskWorker {
         presentSessionTurn(
           provider.runTurn({
             threadId,
+            ...turnSettings,
             workspacePath: workspace.root,
             prompt: turnPrompt,
             signal: this.#turnAbort.signal,
-            ...(task.requestedReasoningEffort
-              ? { reasoningEffort: task.requestedReasoningEffort }
-              : {}),
           }),
           !task.titleGeneratedAt,
           (title) => {
@@ -756,6 +762,7 @@ export class TaskWorker {
         .update(codexThreads)
         .set({
           lastConfirmedCompletionStatus: "completed",
+          model,
         })
         .where(eq(codexThreads.id, threadRowId));
       const completedSequence = await event(

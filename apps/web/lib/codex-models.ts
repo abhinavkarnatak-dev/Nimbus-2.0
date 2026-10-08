@@ -36,6 +36,7 @@ export function selectableModels(
 export async function getSelectableCodexModels(
   userId: string,
   organizationId?: string,
+  connection?: Pick<ReturnType<typeof db>, "select">,
 ): Promise<SelectableCodexModel[]> {
   if (organizationId) {
     const requestHeaders = await headers();
@@ -62,7 +63,7 @@ export async function getSelectableCodexModels(
     ];
   }
 
-  const [catalog] = await db()
+  const [catalog] = await (connection ?? db())
     .select({ models: codexModelCatalogs.models })
     .from(codexModelCatalogs)
     .innerJoin(accounts, eq(codexModelCatalogs.accountId, accounts.id))

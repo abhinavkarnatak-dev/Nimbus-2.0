@@ -159,6 +159,7 @@ export default async function TaskPage({
         finishedAt={data.task.completedAt}
         objective={data.task.objective}
         model={data.task.requestedModel ?? data.thread?.model ?? "Codex"}
+        reasoningEffort={data.task.requestedReasoningEffort}
         initialStatus={data.task.status}
         initialRequestId={data.activeRequestId}
         initialSkillIds={data.task.selectedSkillIds}

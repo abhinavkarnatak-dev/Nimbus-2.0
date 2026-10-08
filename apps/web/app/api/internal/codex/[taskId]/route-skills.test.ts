@@ -129,6 +129,37 @@ beforeEach(() => {
   });
 });
 describe("repository automatic skills route integration", () => {
+  it("uses the claimed message model without changing the remote workspace or PR tools", async () => {
+    fixture.rows[4] = [
+      {
+        id: "message",
+        userId: "user",
+        selectedSkills: [],
+        content: "Inspect",
+        requestedModel: "new-model",
+        requestedReasoningEffort: "medium",
+      },
+    ];
+    fixture.run.mockImplementation(async function* (turn: StartTurnInput) {
+      expect(turn).toMatchObject({
+        threadId: "thread",
+        model: "new-model",
+        reasoningEffort: "medium",
+        environmentId: "nimbus_task_demo",
+      });
+      expect(turn.onToolCall).toBeTypeOf("function");
+      expect(turn.onSkillCall).toBeTypeOf("function");
+      yield { type: "turn_completed", turnId: "turn", status: "completed" };
+    });
+    const response = await POST(request(), {
+      params: Promise.resolve({ taskId }),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(fixture.run).toHaveBeenCalledTimes(1);
+    expect(fixture.startThread).not.toHaveBeenCalled();
+    expect(fixture.publish).not.toHaveBeenCalled();
+  });
   it("promotes a chat provider slot into the existing E2B coding flow without resuming the read-only thread", async () => {
     fixture.rows = [
       [

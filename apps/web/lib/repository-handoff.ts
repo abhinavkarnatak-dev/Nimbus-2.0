@@ -167,6 +167,10 @@ export async function queueRepositoryHandoff(
         userId: message.userId,
         content: message.content,
         selectedSkills: message.selectedSkills,
+        requestedModel: message.requestedModel ?? task.requestedModel,
+        requestedReasoningEffort: message.requestedModel
+          ? message.requestedReasoningEffort
+          : task.requestedReasoningEffort,
         idempotencyKey: `repository-handoff:${message.id}`,
         // Process this continuation before follow-ups that arrived during routing.
         createdAt: message.createdAt,

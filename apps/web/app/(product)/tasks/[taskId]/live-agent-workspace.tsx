@@ -32,7 +32,8 @@ import {
 } from "@/lib/progress-presentation";
 import { SkillPrompt } from "../../skill-prompt";
 import { formatIstTime, formatIstDateTime } from "@/lib/display-time";
-import { useCodexAvailability } from "@/lib/use-codex-availability";
+import { useCodexModels } from "@/lib/use-codex-availability";
+import { preferredCodexEffort } from "@nimbus/codex/model-policy";
 
 interface LiveTaskEvent {
   id: string;
@@ -53,6 +54,7 @@ interface LiveAgentWorkspaceProps {
   finishedAt: string | null;
   objective: string;
   model: string;
+  reasoningEffort?: string | null;
   initialStatus: string;
   initialRequestId?: string | null;
   initialSkillIds?: string[];
@@ -68,6 +70,8 @@ export function LiveAgentWorkspace({
   createdAt,
   finishedAt,
   objective,
+  model,
+  reasoningEffort = null,
   initialStatus,
   initialRequestId,
   initialSkillIds,
@@ -76,7 +80,29 @@ export function LiveAgentWorkspace({
   workbench,
 }: LiveAgentWorkspaceProps) {
   const router = useRouter();
-  const codexAvailable = useCodexAvailability();
+  const models = useCodexModels();
+  const codexAvailable = models.length > 0;
+  const [modelChoice, setModelChoice] = useState({
+    base: model,
+    baseEffort: reasoningEffort,
+    selected: model,
+    effort: reasoningEffort,
+  });
+  const choiceCurrent =
+    modelChoice.base === model && modelChoice.baseEffort === reasoningEffort;
+  const selectedModel = choiceCurrent ? modelChoice.selected : model;
+  const selected = models.find((item) => item.id === selectedModel);
+  const modelAvailable = Boolean(selected);
+  const efforts = selected?.supportedReasoningEfforts ?? [];
+  const chosenEffort = choiceCurrent ? modelChoice.effort : reasoningEffort;
+  const selectedEffort =
+    chosenEffort === null
+      ? null
+      : efforts.some((item) => item.reasoningEffort === chosenEffort)
+        ? chosenEffort
+        : selected
+          ? preferredCodexEffort(selected) || null
+          : null;
   const [events, setEvents] = useState(initialEvents);
   const [status, setStatus] = useState(initialStatus);
   const [workbenchOpen, setWorkbenchOpen] = useState(Boolean(workbench));
@@ -91,6 +117,8 @@ export function LiveAgentWorkspace({
   const submission = useRef<{
     content: string;
     skills: string;
+    model: string;
+    effort: string | null;
     key: string;
   } | null>(null);
   const [now, setNow] = useState(() =>
@@ -293,15 +321,19 @@ export function LiveAgentWorkspace({
 
   const sendFollowup = async () => {
     const content = followup.trim();
-    if (!content || sending || !codexAvailable || status === "cancelling")
+    if (!content || sending || !modelAvailable || status === "cancelling")
       return;
     if (
       submission.current?.content !== content ||
-      submission.current.skills !== JSON.stringify(skillIds)
+      submission.current.skills !== JSON.stringify(skillIds) ||
+      submission.current.model !== selectedModel ||
+      submission.current.effort !== selectedEffort
     )
       submission.current = {
         content,
         skills: JSON.stringify(skillIds),
+        model: selectedModel,
+        effort: selectedEffort,
         key: crypto.randomUUID(),
       };
     setSending(true);
@@ -315,6 +347,8 @@ export function LiveAgentWorkspace({
           content,
           idempotencyKey: submission.current.key,
           skillIds,
+          model: selectedModel,
+          reasoningEffort: selectedEffort,
         }),
       });
       const result = (await response.json()) as { error?: string };
@@ -544,10 +578,12 @@ export function LiveAgentWorkspace({
                 title={
                   !codexAvailable
                     ? "Connect Codex to continue sending messages."
-                    : "Send follow-up"
+                    : !modelAvailable
+                      ? "Select a model to continue sending messages."
+                      : "Send follow-up"
                 }
                 disabled={
-                  !codexAvailable ||
+                  !modelAvailable ||
                   sending ||
                   !followup.trim() ||
                   status === "cancelling"
@@ -556,6 +592,93 @@ export function LiveAgentWorkspace({
                 {sending ? "Sending..." : <Send size={14} />}
               </button>
             )}
+            <div className={styles.modelPicker}>
+              <span className={styles.modelPickerLabel}>Model</span>
+              <select
+                aria-label="Follow-up model"
+                value={selectedModel}
+                disabled={
+                  !codexAvailable ||
+                  sending ||
+                  pendingAfter !== null ||
+                  ![
+                    "completed",
+                    "failed",
+                    "cancelled",
+                    "paused",
+                    "pr_open",
+                    "awaiting_user",
+                  ].includes(status) ||
+                  Boolean(archivedAt)
+                }
+                title={
+                  canStop
+                    ? "Model switching is available after the current request finishes"
+                    : "Model for your next message"
+                }
+                onChange={(event) =>
+                  setModelChoice({
+                    base: model,
+                    baseEffort: reasoningEffort,
+                    selected: event.target.value,
+                    effort:
+                      preferredCodexEffort(
+                        models.find((item) => item.id === event.target.value),
+                      ) || null,
+                  })
+                }
+              >
+                {!modelAvailable && (
+                  <option value={selectedModel}>
+                    {codexAvailable ? "Select a model" : "Connect Codex"}
+                  </option>
+                )}
+                {models.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.modelPickerLabel}>Thinking effort</span>
+              <select
+                aria-label="Follow-up thinking effort"
+                value={selectedEffort ?? ""}
+                disabled={
+                  !modelAvailable ||
+                  efforts.length === 0 ||
+                  sending ||
+                  pendingAfter !== null ||
+                  ![
+                    "completed",
+                    "failed",
+                    "cancelled",
+                    "paused",
+                    "pr_open",
+                    "awaiting_user",
+                  ].includes(status) ||
+                  Boolean(archivedAt)
+                }
+                title="Thinking effort for your next message; available after the current request finishes"
+                onChange={(event) =>
+                  setModelChoice({
+                    base: model,
+                    baseEffort: reasoningEffort,
+                    selected: selectedModel,
+                    effort: event.target.value || null,
+                  })
+                }
+              >
+                <option value="">Model default</option>
+                {efforts.map((item) => (
+                  <option
+                    key={item.reasoningEffort}
+                    value={item.reasoningEffort}
+                  >
+                    {item.reasoningEffort}
+                  </option>
+                ))}
+              </select>
+            </div>
           </form>
         </div>
       </aside>

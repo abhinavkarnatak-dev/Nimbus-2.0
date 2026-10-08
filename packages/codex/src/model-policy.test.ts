@@ -51,3 +51,36 @@ describe("account model selection policy", () => {
       );
   });
 });
+import { messageModelSettings } from "./model-policy.js";
+
+describe("message model snapshots", () => {
+  const task = { requestedModel: "old", requestedReasoningEffort: "high" };
+  it("prefers the immutable message selection over the session default", () => {
+    expect(
+      messageModelSettings(
+        { requestedModel: "new", requestedReasoningEffort: "medium" },
+        task,
+      ),
+    ).toEqual({ model: "new", reasoningEffort: "medium" });
+  });
+  it("does not inherit an old effort when the selected model uses its default", () => {
+    expect(
+      messageModelSettings(
+        { requestedModel: "new", requestedReasoningEffort: null },
+        task,
+      ),
+    ).toEqual({ model: "new" });
+  });
+  it("preserves settings for older messages without a snapshot", () => {
+    expect(messageModelSettings({}, task)).toEqual({
+      model: "old",
+      reasoningEffort: "high",
+    });
+    expect(
+      messageModelSettings(
+        { requestedModel: null, requestedReasoningEffort: null },
+        task,
+      ),
+    ).toEqual({ model: "old", reasoningEffort: "high" });
+  });
+});

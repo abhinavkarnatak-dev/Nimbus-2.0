@@ -46,6 +46,7 @@ export async function getTaskDetail(organizationId: string, taskId: string) {
       title: tasks.title,
       objective: tasks.objective,
       requestedModel: tasks.requestedModel,
+      requestedReasoningEffort: tasks.requestedReasoningEffort,
       status: tasks.status,
       archivedAt: tasks.archivedAt,
       branchName: tasks.branchName,

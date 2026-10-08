@@ -5,6 +5,18 @@ import {
 } from "./agent-instructions.js";
 
 describe("saved agent instructions", () => {
+  it("prefers Mermaid only for flow/sequence diagrams while preserving explicit ASCII requests and folder trees", () => {
+    const prompt = withAgentInstructions(
+      "Show an ASCII flowchart",
+      "Keep explanations brief",
+    );
+    expect(prompt).toContain("flowcharts and sequence diagrams");
+    expect(prompt).toContain("explicitly requests ASCII");
+    expect(prompt).toContain("folder/directory trees");
+    expect(prompt).toContain("not Mermaid");
+    expect(prompt).toContain("Current request:\nShow an ASCII flowchart");
+    expect(prompt).toContain("do not authorize publishing");
+  });
   it("normalizes plain text and permits clearing", () => {
     expect(
       agentInstructionsSchema.parse({

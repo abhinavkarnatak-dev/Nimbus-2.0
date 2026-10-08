@@ -597,6 +597,9 @@ export class CodexAppServerProvider implements CodingAgentProvider {
       await this.#request("turn/start", {
         threadId: input.threadId,
         input: [{ type: "text", text: input.prompt }],
+        ...(input.model
+          ? { model: input.model, effort: input.reasoningEffort ?? null }
+          : {}),
         ...(chatOnly
           ? {
               environments: [],

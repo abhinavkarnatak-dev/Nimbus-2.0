@@ -764,3 +764,33 @@
   line-height: 1.5;
   color: #787180;
 }
+.modelPicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  min-height: 30px;
+  padding-right: 44px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.modelPicker select {
+  max-width: min(280px, 100%);
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-subtle);
+  color: var(--ink);
+  font: inherit;
+}
+
+.modelPicker select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.modelPickerLabel {
+  flex-shrink: 0;
+}

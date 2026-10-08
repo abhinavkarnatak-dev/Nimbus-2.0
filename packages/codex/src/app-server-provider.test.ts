@@ -140,6 +140,43 @@ const create = () =>
   });
 
 describe("Codex execution contract", () => {
+  it("overrides the model between chat turns and sends a null effort for model-default reasoning", async () => {
+    const provider = create();
+    await provider.start();
+    const threadId = await provider.startChatThread("original");
+    for (const model of ["next", "original"]) {
+      for await (const _ of provider.runTurn({
+        threadId,
+        prompt: "Continue",
+        model,
+      })) {
+        /* consume */
+      }
+    }
+    const turns = transport.requests.filter(
+      (request) => request.method === "turn/start",
+    );
+    expect(turns.map((turn) => turn.params)).toEqual([
+      expect.objectContaining({
+        threadId,
+        model: "next",
+        effort: null,
+        environments: [],
+        sandboxPolicy: { type: "readOnly" },
+      }),
+      expect.objectContaining({
+        threadId,
+        model: "original",
+        effort: null,
+        environments: [],
+        sandboxPolicy: { type: "readOnly" },
+      }),
+    ]);
+    expect(
+      transport.requests.filter((request) => request.method === "thread/start"),
+    ).toHaveLength(1);
+    await provider.stop();
+  });
   it("classifies an unconfirmed resume after a process restart without enabling a turn", async () => {
     const provider = create();
     await provider.start();
@@ -358,7 +395,7 @@ describe("Codex execution contract", () => {
     ).toMatchObject({ result: { success: false } });
     await provider.stop();
   });
-  it("pins remote execution on new and resumed threads, without a host command probe", async () => {
+  it("switches models on a resumed thread without changing its remote execution boundary", async () => {
     const provider = create();
     await provider.start();
     const environment = {
@@ -378,6 +415,8 @@ describe("Codex execution contract", () => {
       threadId: "thread-test",
       prompt: "Inspect",
       environmentId: environment.environmentId,
+      model: "next-model",
+      reasoningEffort: "medium",
     })) {
       /* consume */
     }
@@ -391,6 +430,8 @@ describe("Codex execution contract", () => {
         { environmentId: environment.environmentId, cwd: "/workspace/repo" },
       ],
       sandboxPolicy: { type: "externalSandbox" },
+      model: "next-model",
+      effort: "medium",
     });
     expect(transport.requests.some((r) => r.method === "command/exec")).toBe(
       false,

@@ -4,7 +4,6 @@ import {
   BookText,
   ScrollText,
   Code2,
-  ChevronsUpDown,
   LayoutDashboard,
   FolderGit2,
   Plug,
@@ -92,7 +91,6 @@ export default async function ProductLayout({
             <small>Workspace</small>
             <strong>{identity.organizationName}</strong>
           </span>
-          <ChevronsUpDown size={14} />
         </button>
 
         <nav

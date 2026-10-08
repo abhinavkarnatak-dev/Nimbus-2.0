@@ -279,6 +279,8 @@ export const taskMessages = pgTable(
       .$type<import("@nimbus/shared").SkillSnapshot[]>()
       .notNull()
       .default([]),
+    requestedModel: text("requested_model"),
+    requestedReasoningEffort: text("requested_reasoning_effort"),
     status: text("status").notNull().default("queued"),
     completedAt: utc("completed_at"),
     ...timestamps,

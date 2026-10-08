@@ -22,6 +22,24 @@ const fixture = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({
   currentIdentity: async () => ({ ...fixture }),
 }));
+vi.mock("./codex-models", async (original) => ({
+  ...(await original<object>()),
+  getSelectableCodexModels: async () => [
+    {
+      id: "model-a",
+      label: "A",
+      supportedReasoningEfforts: [
+        { reasoningEffort: "medium" },
+        { reasoningEffort: "high" },
+      ],
+    },
+    {
+      id: "model-b",
+      label: "B",
+      supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+    },
+  ],
+}));
 
 describe.runIf(process.env.NIMBUS_TASK_DATABASE_TEST === "true")(
   "durable follow-up routes against PostgreSQL",
@@ -85,6 +103,8 @@ describe.runIf(process.env.NIMBUS_TASK_DATABASE_TEST === "true")(
       key = randomUUID(),
       content = "Add the next change",
       origin = "http://localhost:3000",
+      model?: string,
+      reasoningEffort?: string | null,
     ) {
       const { POST } = await import(
         "../app/api/tasks/[taskId]/messages/route.js"
@@ -97,7 +117,12 @@ describe.runIf(process.env.NIMBUS_TASK_DATABASE_TEST === "true")(
             origin,
             "content-type": "application/json",
           },
-          body: JSON.stringify({ content, idempotencyKey: key }),
+          body: JSON.stringify({
+            content,
+            idempotencyKey: key,
+            ...(model ? { model } : {}),
+            ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+          }),
         }),
         { params: Promise.resolve({ taskId }) },
       );
@@ -108,6 +133,164 @@ describe.runIf(process.env.NIMBUS_TASK_DATABASE_TEST === "true")(
       const [row] = await db().select().from(tasks).where(eq(tasks.id, id));
       expect(row?.status).toBe("running");
       expect(row?.objective).toBe("Original objective");
+      expect(
+        await db()
+          .select()
+          .from(taskMessages)
+          .where(eq(taskMessages.taskId, id)),
+      ).toHaveLength(1);
+    });
+    it("persists effort-only changes and validates retry snapshots", async () => {
+      const id = await task("completed"),
+        key = randomUUID();
+      await db()
+        .update(tasks)
+        .set({ requestedModel: "model-a", requestedReasoningEffort: "medium" })
+        .where(eq(tasks.id, id));
+      expect(
+        (
+          await send(
+            id,
+            key,
+            "Continue",
+            "http://localhost:3000",
+            "model-a",
+            "high",
+          )
+        ).status,
+      ).toBe(202);
+      const [message] = await db()
+        .select()
+        .from(taskMessages)
+        .where(eq(taskMessages.taskId, id));
+      const [session] = await db().select().from(tasks).where(eq(tasks.id, id));
+      expect(message?.requestedReasoningEffort).toBe("high");
+      expect(session?.requestedReasoningEffort).toBe("high");
+      expect(
+        await (
+          await send(
+            id,
+            key,
+            "Continue",
+            "http://localhost:3000",
+            "model-a",
+            "high",
+          )
+        ).json(),
+      ).toMatchObject({ duplicate: true });
+      expect(
+        (
+          await send(
+            id,
+            key,
+            "Continue",
+            "http://localhost:3000",
+            "model-a",
+            "medium",
+          )
+        ).status,
+      ).toBe(409);
+    });
+    it("serializes competing effort changes without altering an accepted message", async () => {
+      const id = await task("completed");
+      await db()
+        .update(tasks)
+        .set({ requestedModel: "model-a", requestedReasoningEffort: null })
+        .where(eq(tasks.id, id));
+      const responses = await Promise.all([
+        send(
+          id,
+          randomUUID(),
+          "First",
+          "http://localhost:3000",
+          "model-a",
+          "high",
+        ),
+        send(
+          id,
+          randomUUID(),
+          "Second",
+          "http://localhost:3000",
+          "model-a",
+          "medium",
+        ),
+      ]);
+      expect(responses.map((response) => response.status).sort()).toEqual([
+        202, 409,
+      ]);
+      const messages = await db()
+        .select()
+        .from(taskMessages)
+        .where(eq(taskMessages.taskId, id));
+      const [session] = await db().select().from(tasks).where(eq(tasks.id, id));
+      expect(messages).toHaveLength(1);
+      expect(session?.requestedReasoningEffort).toBe(
+        messages[0]?.requestedReasoningEffort,
+      );
+    });
+    it("persists a selected model with the message while keeping the task context", async () => {
+      const id = await task("completed");
+      expect(
+        (
+          await send(
+            id,
+            randomUUID(),
+            "Continue",
+            "http://localhost:3000",
+            "model-a",
+          )
+        ).status,
+      ).toBe(202);
+      const [stored] = await db()
+        .select()
+        .from(taskMessages)
+        .where(eq(taskMessages.taskId, id));
+      const [session] = await db().select().from(tasks).where(eq(tasks.id, id));
+      expect(stored).toMatchObject({
+        requestedModel: "model-a",
+        requestedReasoningEffort: "medium",
+        content: "Continue",
+      });
+      expect(session).toMatchObject({
+        requestedModel: "model-a",
+        repositoryId,
+        objective: "Original objective",
+        status: "queued",
+      });
+    });
+    it("serializes competing model switches under the same task lock", async () => {
+      const id = await task("completed");
+      const responses = await Promise.all([
+        send(id, randomUUID(), "First", "http://localhost:3000", "model-a"),
+        send(id, randomUUID(), "Second", "http://localhost:3000", "model-b"),
+      ]);
+      expect(responses.map((response) => response.status).sort()).toEqual([
+        202, 409,
+      ]);
+      const messages = await db()
+        .select()
+        .from(taskMessages)
+        .where(eq(taskMessages.taskId, id));
+      expect(messages).toHaveLength(1);
+      const [session] = await db().select().from(tasks).where(eq(tasks.id, id));
+      expect(session?.requestedModel).toBe(messages[0]?.requestedModel);
+    });
+    it("replays model selection retries without enqueueing a second turn", async () => {
+      const id = await task("completed"),
+        key = randomUUID();
+      expect(
+        (await send(id, key, "Continue", "http://localhost:3000", "model-a"))
+          .status,
+      ).toBe(202);
+      expect(
+        await (
+          await send(id, key, "Continue", "http://localhost:3000", "model-a")
+        ).json(),
+      ).toMatchObject({ duplicate: true });
+      expect(
+        (await send(id, key, "Continue", "http://localhost:3000", "model-b"))
+          .status,
+      ).toBe(409);
       expect(
         await db()
           .select()

@@ -332,6 +332,40 @@ describe("general chat automatic skills streaming integration", () => {
       6,
     );
   });
+  it("uses the message's model on the existing read-only thread", async () => {
+    fixture.rows[1] = [
+      {
+        id: "message",
+        content: "Continue",
+        userId: "user",
+        selectedSkills: [],
+        requestedModel: "new-model",
+        requestedReasoningEffort: null,
+      },
+    ];
+    const runTurn = vi.fn(async function* (input: StartTurnInput) {
+      expect(input).toMatchObject({ threadId: "thread", model: "new-model" });
+      expect(input).not.toHaveProperty("reasoningEffort");
+      expect(input).not.toHaveProperty("workspacePath");
+      expect(input).not.toHaveProperty("onToolCall");
+      yield {
+        type: "turn_completed" as const,
+        turnId: "turn",
+        status: "completed" as const,
+      };
+    });
+    const startChatThread = vi.fn();
+    const response = await generalChatOperation(
+      new Request("http://localhost/internal"),
+      task,
+      { operation: "turn/start", threadId: "thread" },
+      new Set(),
+      { startChatThread, runTurn } as unknown as CodexAppServerProvider,
+    );
+    await response.text();
+    expect(runTurn).toHaveBeenCalledTimes(1);
+    expect(startChatThread).not.toHaveBeenCalled();
+  });
   it("records the skill-capable version for new general chat threads without changing login", async () => {
     fixture.rows = [[]];
     const startChatThread = vi.fn().mockResolvedValue("new-thread");

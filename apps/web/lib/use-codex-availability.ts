@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { SelectableCodexModel } from "./codex-models";
 
 // A stored task model is not evidence that its user's account is still connected.
 export function useCodexAvailability() {
-  const [available, setAvailable] = useState(false);
+  return useCodexModels().length > 0;
+}
+
+export function useCodexModels() {
+  const [models, setModels] = useState<SelectableCodexModel[]>([]);
   useEffect(() => {
     const controller = new AbortController();
     let busy = false;
@@ -21,11 +26,9 @@ export function useCodexAvailability() {
         });
         const result = response.ok ? await response.json() : null;
         if (!controller.signal.aborted)
-          setAvailable(
-            Array.isArray(result?.models) && result.models.length > 0,
-          );
+          setModels(Array.isArray(result?.models) ? result.models : []);
       } catch {
-        if (!controller.signal.aborted) setAvailable(false);
+        if (!controller.signal.aborted) setModels([]);
       } finally {
         busy = false;
       }
@@ -39,5 +42,5 @@ export function useCodexAvailability() {
       window.removeEventListener("focus", refresh);
     };
   }, []);
-  return available;
+  return models;
 }

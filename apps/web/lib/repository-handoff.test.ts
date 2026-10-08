@@ -178,6 +178,23 @@ describe("durable repository handoff", () => {
     });
     expect(fixture.inserts).toHaveLength(3); // continuation, context, audit - no conversation event
   });
+  it("retains the selected model when a general conversation requests repository work", async () => {
+    await queueRepositoryHandoff(
+      task,
+      {
+        ...message,
+        requestedModel: "selected-model",
+        requestedReasoningEffort: "medium",
+      },
+      "repo",
+    );
+    expect(
+      fixture.inserts.find((row) => row.table === taskMessages)?.value,
+    ).toMatchObject({
+      requestedModel: "selected-model",
+      requestedReasoningEffort: "medium",
+    });
+  });
   it.each(["cancelling", "cancelled", "completed"])(
     "does not hand off a %s request",
     async (status) => {

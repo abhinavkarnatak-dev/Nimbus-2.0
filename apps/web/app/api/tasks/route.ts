@@ -216,6 +216,8 @@ export async function POST(request: Request) {
         userId: identity.userId,
         content: input.objective,
         selectedSkills,
+        requestedModel: executionModel.id,
+        requestedReasoningEffort: reasoningEffort ?? null,
         idempotencyKey: input.idempotencyKey,
       });
       await tx.insert(taskEvents).values({

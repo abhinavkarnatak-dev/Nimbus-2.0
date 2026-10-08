@@ -92,6 +92,13 @@
       "when": 1791320000000,
       "tag": "0012_pr_email_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791476000000,
+      "tag": "0013_message_model_selection",
+      "breakpoints": true
     }
   ]
 }

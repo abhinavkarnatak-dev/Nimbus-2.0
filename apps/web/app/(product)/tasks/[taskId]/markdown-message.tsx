@@ -1,11 +1,21 @@
 "use client";
 
-import { isValidElement, useState, type ReactNode } from "react";
-import Markdown from "react-markdown";
+import {
+  createContext,
+  isValidElement,
+  useContext,
+  useState,
+  type ReactNode,
+} from "react";
+import Markdown, { type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Link from "next/link";
 import { chatLink, fileReferenceTarget } from "@/lib/chat-links";
 import styles from "./conversation.module.css";
+import { MermaidDiagram } from "./mermaid-diagram";
+import { hasClosedDiagramFence } from "@/lib/mermaid-source";
+
+const MarkdownSource = createContext("");
 
 export function MarkdownMessage({
   text,
@@ -18,68 +28,78 @@ export function MarkdownMessage({
 }) {
   return (
     <div className={styles.markdown} data-markdown-message>
-      <Markdown
-        skipHtml
-        remarkPlugins={[remarkGfm]}
-        urlTransform={(url, key) =>
-          key === "href" && chatLink(url, taskId).kind !== "blocked" ? url : ""
-        }
-        components={{
-          pre: CodeBlock,
-          img: ({ alt }) => (
-            <span>{alt ? `[Image: ${alt}]` : "[Image omitted]"}</span>
-          ),
-          a: ({ href, children }) => {
-            const link = chatLink(href ?? "", taskId);
-            if (link.kind === "file") {
-              const query = fileReferenceTarget(link.reference);
-              return (
-                <Link
-                  href={`/tasks/${taskId}?${query}`}
-                  scroll={false}
-                  className={styles.fileReference}
-                  title={link.reference}
-                  aria-label={`Open ${link.reference} in ${query.get("tab") === "artifacts" ? "Artifacts" : "Files"}`}
-                  onClick={(event) => {
-                    if (
-                      onOpenFile &&
-                      !event.ctrlKey &&
-                      !event.metaKey &&
-                      !event.shiftKey &&
-                      !event.altKey
-                    ) {
-                      event.preventDefault();
-                      onOpenFile(link.reference);
-                    }
-                  }}
-                >
-                  {children}
-                  <small>{link.reference.match(/:(\d+)$/)?.[0]}</small>
-                </Link>
-              );
-            }
-            if (link.kind === "external")
-              return (
-                <a
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  referrerPolicy="no-referrer"
-                >
-                  {children}
-                </a>
-              );
-            return <span>{children}</span>;
-          },
-        }}
-      >
-        {text}
-      </Markdown>
+      <MarkdownSource.Provider value={text}>
+        <Markdown
+          skipHtml
+          remarkPlugins={[remarkGfm]}
+          urlTransform={(url, key) =>
+            key === "href" && chatLink(url, taskId).kind !== "blocked"
+              ? url
+              : ""
+          }
+          components={{
+            pre: CodeBlock,
+            img: ({ alt }) => (
+              <span>{alt ? `[Image: ${alt}]` : "[Image omitted]"}</span>
+            ),
+            a: ({ href, children }) => {
+              const link = chatLink(href ?? "", taskId);
+              if (link.kind === "file") {
+                const query = fileReferenceTarget(link.reference);
+                return (
+                  <Link
+                    href={`/tasks/${taskId}?${query}`}
+                    scroll={false}
+                    className={styles.fileReference}
+                    title={link.reference}
+                    aria-label={`Open ${link.reference} in ${query.get("tab") === "artifacts" ? "Artifacts" : "Files"}`}
+                    onClick={(event) => {
+                      if (
+                        onOpenFile &&
+                        !event.ctrlKey &&
+                        !event.metaKey &&
+                        !event.shiftKey &&
+                        !event.altKey
+                      ) {
+                        event.preventDefault();
+                        onOpenFile(link.reference);
+                      }
+                    }}
+                  >
+                    {children}
+                    <small>{link.reference.match(/:(\d+)$/)?.[0]}</small>
+                  </Link>
+                );
+              }
+              if (link.kind === "external")
+                return (
+                  <a
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                  >
+                    {children}
+                  </a>
+                );
+              return <span>{children}</span>;
+            },
+          }}
+        >
+          {text}
+        </Markdown>
+      </MarkdownSource.Provider>
     </div>
   );
 }
 
-function CodeBlock({ children }: { children?: ReactNode }) {
+function CodeBlock({
+  children,
+  node,
+}: {
+  children?: ReactNode;
+} & ExtraProps) {
+  const markdown = useContext(MarkdownSource);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [copyError, setCopyError] = useState(false);
   const element = isValidElement<{ children?: ReactNode; className?: string }>(
@@ -93,6 +113,17 @@ function CodeBlock({ children }: { children?: ReactNode }) {
     element?.props.className?.replace(/^language-/, "") ?? "Code";
   const extension = fileExtension(language);
   const downloadable = Boolean(extension);
+  if (language.toLowerCase() === "mermaid")
+    return (
+      <MermaidDiagram
+        source={code}
+        complete={hasClosedDiagramFence(
+          markdown,
+          node?.position?.start.offset,
+          node?.position?.end.offset,
+        )}
+      />
+    );
   return (
     <div className={styles.codeBlock}>
       <div className={styles.codeHeading}>

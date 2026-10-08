@@ -18,6 +18,7 @@ export interface StartThreadInput {
 
 export interface StartTurnInput {
   threadId: string;
+  model?: string;
   workspacePath?: string;
   environmentId?: string;
   prompt: string;

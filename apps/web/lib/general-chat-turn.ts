@@ -17,7 +17,7 @@ import {
 } from "@nimbus/shared";
 import { connectedDeviceProvider } from "./codex-device";
 import type { CodexAppServerProvider } from "@nimbus/codex";
-import { ChatThreadResumeError } from "@nimbus/codex";
+import { ChatThreadResumeError, messageModelSettings } from "@nimbus/codex";
 import { requestStopSignal } from "./request-stop-signal";
 import {
   prepareAutomaticSkills,
@@ -90,7 +90,7 @@ export async function generalChatOperation(
       request.signal.throwIfAborted();
       const context = await conversationHandoffContext(task.id);
       const replacementId = await provider.startChatThread(
-        thread.model ?? task.requestedModel!,
+        task.requestedModel ?? thread.model!,
       );
       request.signal.throwIfAborted();
       await replaceConversationThread(
@@ -137,7 +137,7 @@ export async function generalChatOperation(
     // pinned runtime. Replace only the active provider slot, retaining history.
     handoffContext = await conversationHandoffContext(task.id);
     const replacementId = await provider.startChatThread(
-      thread.model ?? task.requestedModel!,
+      message.requestedModel ?? task.requestedModel ?? thread.model!,
     );
     await replaceConversationThread(
       thread,
@@ -175,6 +175,7 @@ export async function generalChatOperation(
       skills.present(
         provider.runTurn({
           threadId: thread.providerThreadId,
+          ...messageModelSettings(message, task),
           prompt: withAgentInstructions(
             skills.prompt(
               [
@@ -195,9 +196,6 @@ export async function generalChatOperation(
             ),
             instructions,
           ),
-          ...(task.requestedReasoningEffort
-            ? { reasoningEffort: task.requestedReasoningEffort }
-            : {}),
           signal: stop.signal,
           onSkillCall: skills.onSkillCall,
           onRepositoryCall: repositoryTools.onRepositoryCall,
