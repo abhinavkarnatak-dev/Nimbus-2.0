@@ -478,3 +478,192 @@ export function deviceConnection(key: string, start = false) {
 }
 
 async function readConnection(key: string, start: boolean, wake = false) {
+  if (!deviceAuthEnabled()) return { status: "disconnected" as const };
+  const home = deviceHome(key);
+  let connection = connections.get(key);
+  // Development hot reload may retain a pre-persistence provider instance.
+  if (connection && typeof connection.provider.logoutDevice !== "function") {
+    if (connection.timeout) clearTimeout(connection.timeout);
+    await connection.provider.stop();
+    connections.delete(key);
+    connection = undefined;
+  }
+  // Restore this identity's saved login from the database first: a replaced
+  // container has an empty credential home, and that must not force a
+  // reconnect. A pending sign-in is never clobbered.
+  if (!connection || connection.status !== "pending")
+    await ensureCredentials(key, home);
+  // Restore only this identity's saved login; GET never creates a fresh device code.
+  if (!connection && (start || (await savedCredentials(home))))
+    connection = await createConnection(key, home);
+  if (!connection) return { status: "disconnected" as const };
+  await connection.ready;
+  // UI polling and model pickers must not restart an idle authenticated CLI.
+  if (
+    !wake &&
+    connection.status === "connected" &&
+    (await savedCredentials(home))
+  )
+    return {
+      status: "connected" as const,
+      account: connection.account,
+      models: connection.models,
+    };
+  if (!connection.provider.isRunning) {
+    if (connection.provider.hasActiveTurn)
+      throw new DeviceConnectionError(
+        "Codex is recovering from an interrupted turn. Retry shortly.",
+      );
+    await connection.provider.stop();
+    connection.ready = startProcess(key, connection);
+    try {
+      await connection.ready;
+    } catch (error) {
+      await connection.provider.stop();
+      connection.ready = Promise.resolve();
+      if (error instanceof DeviceConnectionError) throw error;
+      connections.delete(key);
+      throw new DeviceConnectionError(
+        "Codex could not restart. Check the server CLI installation.",
+      );
+    }
+    delete connection.modelsFetchedAt;
+    if (connection.status === "pending") {
+      connection.status = "expired";
+      delete connection.login;
+    }
+  }
+  connection.lastUsedAt = Date.now();
+  scheduleIdle(key, connection);
+  try {
+    const account = await connection.provider.readDeviceAccount();
+    if (account) {
+      // Codex owns token refresh; a private file store survives process and server restarts.
+      if (await savedCredentials(home))
+        await chmod(resolve(home, "auth.json"), 0o600);
+      const established = connection.status !== "connected";
+      connection.account = account;
+      connection.status = "connected";
+      if (established) {
+        const outcome = await persistAuthCredential(key, connection, {
+          // Only a completed sign-in may clear an earlier disconnect.
+          clearRevocation: connection.freshLogin === true,
+        }).catch(() => "failed" as StoreOutcome);
+        if (outcome === "ok" && connection.freshLogin)
+          connection.freshLogin = false;
+      }
+      if (
+        !connection.limits &&
+        typeof connection.provider.readRateLimits === "function"
+      )
+        connection.limits = await connection.provider
+          .readRateLimits()
+          .catch(() => undefined);
+      if (connection.timeout) clearTimeout(connection.timeout);
+      delete connection.login;
+      delete connection.expiresAt;
+      if (
+        !connection.modelsFetchedAt ||
+        Date.now() - connection.modelsFetchedAt > 60_000
+      ) {
+        connection.models = await connection.provider.listModels();
+        connection.modelsFetchedAt = Date.now();
+      }
+    } else if (connection.status === "connected") {
+      connection.status = "disconnected";
+      delete connection.account;
+      delete connection.models;
+    }
+  } catch {
+    // A model/account lookup failure must not silently start a new login or erase credentials.
+    throw new DeviceConnectionError(
+      "Codex could not read your connection. Retry, or reconnect if the problem persists.",
+    );
+  }
+  if (start && !["pending", "connected"].includes(connection.status)) {
+    if (connection.timeout) clearTimeout(connection.timeout);
+    connection.login = await connection.provider.startDeviceLogin();
+    connection.status = "pending";
+    connection.freshLogin = true;
+    connection.expiresAt = Date.now() + 10 * 60_000;
+    const current = connection;
+    connection.timeout = setTimeout(() => {
+      void exclusive(key, async () => {
+        if (connections.get(key) !== current || current.status !== "pending")
+          return;
+        // Check for a last-second successful login before cancelling.
+        const account = await current.provider
+          .readDeviceAccount()
+          .catch(() => null);
+        if (account) return;
+        current.status = "expired";
+        await current.provider
+          .cancelDeviceLogin(current.login!.loginId)
+          .catch(() => {});
+        delete current.login;
+        await current.provider.stop();
+      }).catch(() => {});
+    }, 10 * 60_000);
+    connection.timeout.unref();
+  }
+  return {
+    status: connection.status,
+    ...(connection.status === "pending" && connection.login
+      ? {
+          verificationUrl: connection.login.verificationUrl,
+          userCode: connection.login.userCode,
+          expiresAt: connection.expiresAt,
+        }
+      : {}),
+    ...(connection.status === "connected"
+      ? { account: connection.account, models: connection.models }
+      : {}),
+  };
+}
+
+export function disconnectDevice(key: string) {
+  return exclusive(key, async () => {
+    const connection = connections.get(key);
+    if (
+      connection &&
+      (connection.leases ||
+        connection.provider.hasActiveTurn ||
+        connection.provider.hasPendingRequests)
+    )
+      throw new DeviceConnectionError(
+        "Stop your current task before disconnecting Codex.",
+      );
+    const home = connection?.home ?? deviceHome(key);
+    // The database is the source of truth, so revoke before removing local
+    // state. A revoke that was never recorded would let the next restart
+    // restore an account the user just disconnected.
+    const revoked = await revokeCredential(key);
+    if (revoked === "failed")
+      throw new DeviceConnectionError(
+        "Codex disconnect could not be recorded. Try again.",
+      );
+    if (connection) {
+      if (connection.idleTimeout) clearTimeout(connection.idleTimeout);
+      if (connection.timeout) clearTimeout(connection.timeout);
+      if (connection.login && connection.status === "pending")
+        await connection.provider
+          .cancelDeviceLogin(connection.login.loginId)
+          .catch(() => {});
+      if (typeof connection.provider.logoutDevice === "function")
+        await connection.provider.logoutDevice().catch(() => {});
+      await connection.provider.stop();
+      connections.delete(key);
+    }
+    // Remove only this user's credential file, even if the process had already
+    // stopped. Truncating first means a failed unlink cannot leave a usable
+    // credential behind.
+    await writeFile(resolve(home, AUTH_FILE), "{}", { mode: 0o600 }).catch(
+      () => {},
+    );
+    await unlink(resolve(home, AUTH_FILE)).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error;
+      },
+    );
+  });
+}
