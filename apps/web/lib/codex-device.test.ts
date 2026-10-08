@@ -63,6 +63,7 @@ const store = vi.hoisted(() => ({
   blobs: new Map<string, { blob: string; revoked: boolean }>(),
   reads: 0,
   failRead: false,
+  failWrites: 0,
 }));
 vi.mock("./codex-credential-store", () => ({
   readCredential: async (accountKey: string, kind: string) => {
@@ -78,6 +79,10 @@ vi.mock("./codex-credential-store", () => ({
     plaintext: string,
     options?: { clearRevocation?: boolean },
   ) => {
+    if (store.failWrites > 0) {
+      store.failWrites -= 1;
+      return "failed";
+    }
     const entry = store.blobs.get(`${kind}:${accountKey}`);
     if (entry?.revoked && !options?.clearRevocation) return "skipped";
     store.blobs.set(`${kind}:${accountKey}`, {
@@ -86,9 +91,11 @@ vi.mock("./codex-credential-store", () => ({
     });
     return "ok";
   },
+  // Mirrors the real store: a revoke leaves a revoked row for every kind, so a
+  // write that arrives afterwards cannot create a live credential.
   revokeCredential: async (accountKey: string) => {
-    for (const [key, entry] of store.blobs)
-      if (key.endsWith(`:${accountKey}`)) entry.revoked = true;
+    for (const kind of ["auth", "home"])
+      store.blobs.set(`${kind}:${accountKey}`, { blob: "", revoked: true });
     return "ok";
   },
 }));
@@ -163,6 +170,7 @@ afterEach(async () => {
   vi.useRealTimers();
   fixture.active = false;
   store.failRead = false;
+  store.failWrites = 0;
   for (const key of [
     "unit-test-user",
     "other-unit-test-user",
@@ -450,5 +458,69 @@ describe("durable Codex credentials", () => {
     expect(await deviceConnection("third-unit-test-user")).toMatchObject({
       status: "connected",
     });
+  });
+  it("retries a credential save that failed instead of trusting the digest", async () => {
+    vi.useFakeTimers();
+    store.failWrites = 1;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("auth:unit-test-user")?.blob).toContain(
+      "credential",
+    );
+  });
+  it("re-enables thread snapshots after a disconnect and a new sign-in", async () => {
+    vi.useFakeTimers();
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(false);
+    await disconnectDevice("unit-test-user");
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+    // The disconnect removed the local credential, so the user signs in again.
+    fixture.authorized = false;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(false);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("home:unit-test-user")?.blob).toBeDefined();
+  });
+  it("does not let a late write restore a disconnected account", async () => {
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+    replaceContainer();
+    expect(await deviceConnection("unit-test-user")).toEqual({
+      status: "disconnected",
+    });
+  });
+  it("saves a completed turn without waiting for the idle suspend", async () => {
+    fixture.saved = fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    const response = await withDeviceProvider(
+      "unit-test-user",
+      async () =>
+        new Response(new ReadableStream(), {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
+    );
+    snapshot.write.mockClear();
+    await response.body!.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(snapshot.write).toHaveBeenCalled();
+    expect(store.blobs.get("auth:unit-test-user")?.blob).toContain(
+      "credential",
+    );
   });
 });
