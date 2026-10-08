@@ -120,6 +120,9 @@ export async function writeCredential(
 
 // Disconnect revokes every kind for this identity: the home snapshot also
 // contains the credential file, so leaving it behind would restore the account.
+// The row is created when it is absent, because a plain update would leave a
+// gap that a later insert fills with a live credential for a disconnected
+// account.
 export async function revokeCredential(
   accountKey: string,
 ): Promise<StoreOutcome> {
@@ -127,9 +130,24 @@ export async function revokeCredential(
   const now = new Date().toISOString();
   try {
     await db()
-      .update(codexCredentials)
-      .set({ blob: null, revokedAt: now, updatedAt: now })
-      .where(eq(codexCredentials.accountKey, accountKey));
+      .insert(codexCredentials)
+      .values(
+        (["auth", "home"] as const).map((kind) => ({
+          accountKey,
+          kind,
+          ...identity(accountKey),
+          blob: null,
+          algorithm: CREDENTIAL_ALGORITHM,
+          blobVersion: CREDENTIAL_BLOB_VERSION,
+          revokedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [codexCredentials.accountKey, codexCredentials.kind],
+        set: { blob: null, revokedAt: now, updatedAt: now },
+      });
     return "ok";
   } catch (error) {
     warnUnavailable(error);
