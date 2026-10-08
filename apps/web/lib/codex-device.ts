@@ -216,6 +216,15 @@ export async function withDeviceProvider(
     released = true;
     connection.leases = Math.max(0, (connection.leases ?? 1) - 1);
     connection.lastUsedAt = Date.now();
+    // A finished turn is when the newest credential and thread files exist and
+    // the container may still be replaced, so persist now instead of waiting
+    // for the idle suspend. The identity lock keeps this from interleaving
+    // with a suspend, a disconnect, or the shutdown flush.
+    void exclusive(key, async () => {
+      if (connections.get(key) !== connection) return;
+      await persistAuthCredential(key, connection);
+      await persistHomeSnapshot(key, connection);
+    }).catch(() => {});
     scheduleIdle(key, connection);
   };
   try {
@@ -330,6 +339,16 @@ async function ensureCredentials(key: string, home: string) {
     // Best effort: an unrestored login is the same as no saved login.
   }
 }
+// Codex rewrites this file in place, so a read can catch a partial write.
+// Storing one would replace a usable saved login with an unusable one.
+function completeCredential(contents: Buffer): boolean {
+  try {
+    JSON.parse(contents.toString("utf8"));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function persistAuthCredential(
   key: string,
@@ -338,19 +357,34 @@ async function persistAuthCredential(
 ): Promise<StoreOutcome> {
   const contents = await readAuthFile(connection.home);
   if (!contents) return "skipped";
+  if (!completeCredential(contents)) return "skipped";
   const digest = credentialDigest(contents);
   if (!options.clearRevocation && connection.storedDigest === digest)
     return "skipped";
-  connection.storedDigest = digest;
-  return writeCredential(key, "auth", contents.toString("utf8"), options);
+  const outcome = await writeCredential(
+    key,
+    "auth",
+    contents.toString("utf8"),
+    options,
+  );
+  // Recorded only after the store accepted it, so a failed save is retried by
+  // the next completed turn, suspend, or shutdown instead of being skipped.
+  if (outcome !== "failed") connection.storedDigest = digest;
+  return outcome;
 }
 
-async function persistHomeSnapshot(key: string, connection: Connection) {
+async function persistHomeSnapshot(
+  key: string,
+  connection: Connection,
+  options: { clearRevocation?: boolean } = {},
+): Promise<StoreOutcome> {
   try {
     const snapshot = await snapshotCodexHome(connection.home);
-    if (snapshot) await writeCredential(key, "home", snapshot);
+    if (!snapshot) return "skipped";
+    return await writeCredential(key, "home", snapshot, options);
   } catch {
     // Thread files are an optimization; never let them break a suspend.
+    return "failed";
   }
 }
 
@@ -361,12 +395,15 @@ function registerCredentialFlush() {
   if (registry.nimbusDeviceCredentialFlush) return;
   registry.nimbusDeviceCredentialFlush = true;
   const flush = () => {
-    const pending = [...connections.entries()].map(
-      async ([key, connection]) => {
+    const pending = [...connections.entries()].map(([key, connection]) =>
+      // Serialized with the identity's own lock, so a flush can never insert a
+      // live row after that identity's disconnect has already revoked it.
+      exclusive(key, async () => {
+        if (connections.get(key) !== connection) return;
         if (connection.status !== "connected") return;
         await persistAuthCredential(key, connection);
         await persistHomeSnapshot(key, connection);
-      },
+      }).catch(() => {}),
     );
     const deadline = new Promise((resolve) => {
       const timer = setTimeout(resolve, 2_000);
@@ -383,7 +420,10 @@ registerCredentialFlush();
 // A suspended connection keeps its saved credential file, so it costs one map
 // entry rather than a process. Evicting the least recently used one keeps the
 // retained-connection cap from locking a new identity out permanently.
-async function evictIdleConnection(): Promise<boolean> {
+// Synchronous on purpose: createConnection must evict an idle connection and
+// reserve the freed slot in one uninterrupted step, or two concurrent
+// admissions can both pass the retained-connection cap.
+function evictIdleConnection(): boolean {
   let candidate: { key: string; connection: Connection } | undefined;
   for (const [key, connection] of connections) {
     if (
@@ -409,13 +449,13 @@ async function createConnection(key: string, home: string) {
   const limit = Number(process.env.NIMBUS_CODEX_MAX_CONNECTIONS ?? "10");
   if (!Number.isSafeInteger(limit) || limit < 1)
     throw new Error("Invalid Codex connection limit");
-  if (
-    new Set([...connections.keys(), ...initializing]).size >= limit &&
-    !(await evictIdleConnection())
-  )
-    throw new DeviceConnectionError(
-      "Codex connection capacity reached. Try again after another connection is closed.",
-    );
+  while (new Set([...connections.keys(), ...initializing]).size >= limit) {
+    if (!evictIdleConnection())
+      throw new DeviceConnectionError(
+        "Codex connection capacity reached. Try again after another connection is closed.",
+      );
+  }
+  // Reserved in the same synchronous step as the eviction above.
   initializing.add(key);
   try {
     await mkdir(home, { recursive: true, mode: 0o700 });
@@ -545,12 +585,21 @@ async function readConnection(key: string, start: boolean, wake = false) {
       connection.account = account;
       connection.status = "connected";
       if (established) {
+        const fresh = connection.freshLogin === true;
         const outcome = await persistAuthCredential(key, connection, {
           // Only a completed sign-in may clear an earlier disconnect.
-          clearRevocation: connection.freshLogin === true,
+          clearRevocation: fresh,
         }).catch(() => "failed" as StoreOutcome);
-        if (outcome === "ok" && connection.freshLogin)
-          connection.freshLogin = false;
+        if (outcome === "ok") {
+          // A new login also re-enables thread snapshots, which an earlier
+          // disconnect revoked along with the credential.
+          const home = fresh
+            ? await persistHomeSnapshot(key, connection, {
+                clearRevocation: true,
+              })
+            : "ok";
+          if (home !== "failed") connection.freshLogin = false;
+        }
       }
       if (
         !connection.limits &&
