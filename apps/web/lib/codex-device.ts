@@ -1,5 +1,13 @@
-import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import {
   CodexAppServerProvider,
@@ -7,6 +15,14 @@ import {
   deviceRequestAllowed,
   type CodingAgentModel,
 } from "@nimbus/codex";
+import { credentialDigest } from "./codex-credential-crypto";
+import {
+  readCredential,
+  revokeCredential,
+  writeCredential,
+  type StoreOutcome,
+} from "./codex-credential-store";
+import { restoreCodexHome, snapshotCodexHome } from "./codex-home-snapshot";
 import { nimbusRepositoryRoot } from "./repository-root";
 
 interface Connection {
@@ -23,6 +39,10 @@ interface Connection {
   idleTimeout?: NodeJS.Timeout;
   lastUsedAt?: number;
   leases?: number;
+  // Set while a freshly authorized sign-in still needs its durable write, and
+  // used to skip redundant credential writes.
+  freshLogin?: boolean;
+  storedDigest?: string;
   limits?:
     | Awaited<ReturnType<CodexAppServerProvider["readRateLimits"]>>
     | undefined;
@@ -33,6 +53,7 @@ const registry = globalThis as typeof globalThis & {
   nimbusDeviceOperations?: Map<string, Promise<unknown>>;
   nimbusDeviceInitializations?: Set<string>;
   nimbusDeviceProcessQueue?: Promise<void>;
+  nimbusDeviceCredentialFlush?: boolean;
 };
 const connections = (registry.nimbusDeviceConnections ??= new Map());
 const operations = (registry.nimbusDeviceOperations ??= new Map());
@@ -100,7 +121,7 @@ function busy(connection: Connection) {
   );
 }
 
-async function suspend(connection: Connection) {
+async function suspend(key: string, connection: Connection) {
   if (busy(connection)) return false;
   if (
     connection.status === "connected" &&
@@ -108,6 +129,10 @@ async function suspend(connection: Connection) {
   )
     return false;
   await connection.provider.stop(); // No logout: auth.json and thread files remain intact.
+  // The process is idle here, so this is the cheapest safe moment to persist
+  // the rotated credential and the thread files the container would otherwise lose.
+  await persistAuthCredential(key, connection);
+  await persistHomeSnapshot(key, connection);
   return true;
 }
 
@@ -122,7 +147,7 @@ function scheduleIdle(key: string, connection: Connection) {
           scheduleIdle(key, connection);
           return;
         }
-        await suspend(connection);
+        await suspend(key, connection);
       }).catch(() => {});
     },
     Number.isFinite(timeout) && timeout >= 1000 ? timeout : 45000,
@@ -149,7 +174,7 @@ async function startProcess(key: string, connection: Connection) {
           busy(other)
         )
           continue;
-        if (await suspend(other)) running--;
+        if (await suspend(otherKey, other)) running--;
       }
       if (running >= cap)
         throw new DeviceConnectionError(
@@ -264,11 +289,130 @@ async function savedCredentials(home: string) {
   }
 }
 
+const AUTH_FILE = "auth.json";
+
+async function readAuthFile(home: string): Promise<Buffer | null> {
+  try {
+    const contents = await readFile(resolve(home, AUTH_FILE));
+    return Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
+  } catch {
+    return null;
+  }
+}
+
+// Staged inside the credential directory and renamed, so no reader ever sees a
+// partial file and the credential path can never become a link.
+async function writeAuthFile(home: string, contents: Buffer) {
+  const staging = resolve(
+    home,
+    "tmp",
+    `auth.json.${randomBytes(8).toString("hex")}`,
+  );
+  await mkdir(resolve(home, "tmp"), { recursive: true, mode: 0o700 });
+  await writeFile(staging, contents, { mode: 0o600 });
+  await rename(staging, resolve(home, AUTH_FILE));
+  await chmod(resolve(home, AUTH_FILE), 0o600);
+}
+
+// A free web service replaces the container on every restart, redeploy, and
+// spin-down, so the credential file is only a cache. Restore this identity's
+// saved login from the database before anything reads the credential home.
+// Runs inside the identity's lock, and never overwrites an existing file or an
+// in-progress sign-in.
+async function ensureCredentials(key: string, home: string) {
+  if (await savedCredentials(home)) return;
+  try {
+    const snapshot = await readCredential(key, "home");
+    if (snapshot) await restoreCodexHome(home, snapshot);
+    const credential = await readCredential(key, "auth");
+    if (credential) await writeAuthFile(home, Buffer.from(credential, "utf8"));
+  } catch {
+    // Best effort: an unrestored login is the same as no saved login.
+  }
+}
+
+async function persistAuthCredential(
+  key: string,
+  connection: Connection,
+  options: { clearRevocation?: boolean } = {},
+): Promise<StoreOutcome> {
+  const contents = await readAuthFile(connection.home);
+  if (!contents) return "skipped";
+  const digest = credentialDigest(contents);
+  if (!options.clearRevocation && connection.storedDigest === digest)
+    return "skipped";
+  connection.storedDigest = digest;
+  return writeCredential(key, "auth", contents.toString("utf8"), options);
+}
+
+async function persistHomeSnapshot(key: string, connection: Connection) {
+  try {
+    const snapshot = await snapshotCodexHome(connection.home);
+    if (snapshot) await writeCredential(key, "home", snapshot);
+  } catch {
+    // Thread files are an optimization; never let them break a suspend.
+  }
+}
+
+// Last-resort flush for a redeploy. Every completed turn and every suspend
+// already persists, so this is deliberately best effort and bounded: it must
+// never hold process exit open.
+function registerCredentialFlush() {
+  if (registry.nimbusDeviceCredentialFlush) return;
+  registry.nimbusDeviceCredentialFlush = true;
+  const flush = () => {
+    const pending = [...connections.entries()].map(
+      async ([key, connection]) => {
+        if (connection.status !== "connected") return;
+        await persistAuthCredential(key, connection);
+        await persistHomeSnapshot(key, connection);
+      },
+    );
+    const deadline = new Promise((resolve) => {
+      const timer = setTimeout(resolve, 2_000);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+    void Promise.race([Promise.allSettled(pending), deadline]).catch(() => {});
+  };
+  process.on("SIGTERM", flush);
+  process.on("SIGINT", flush);
+}
+
+registerCredentialFlush();
+
+// A suspended connection keeps its saved credential file, so it costs one map
+// entry rather than a process. Evicting the least recently used one keeps the
+// retained-connection cap from locking a new identity out permanently.
+async function evictIdleConnection(): Promise<boolean> {
+  let candidate: { key: string; connection: Connection } | undefined;
+  for (const [key, connection] of connections) {
+    if (
+      connection.provider.isRunning ||
+      operations.has(key) ||
+      busy(connection)
+    )
+      continue;
+    if (
+      !candidate ||
+      (connection.lastUsedAt ?? 0) < (candidate.connection.lastUsedAt ?? 0)
+    )
+      candidate = { key, connection };
+  }
+  if (!candidate) return false;
+  if (candidate.connection.idleTimeout)
+    clearTimeout(candidate.connection.idleTimeout);
+  connections.delete(candidate.key);
+  return true;
+}
+
 async function createConnection(key: string, home: string) {
   const limit = Number(process.env.NIMBUS_CODEX_MAX_CONNECTIONS ?? "10");
   if (!Number.isSafeInteger(limit) || limit < 1)
     throw new Error("Invalid Codex connection limit");
-  if (new Set([...connections.keys(), ...initializing]).size >= limit)
+  if (
+    new Set([...connections.keys(), ...initializing]).size >= limit &&
+    !(await evictIdleConnection())
+  )
     throw new DeviceConnectionError(
       "Codex connection capacity reached. Try again after another connection is closed.",
     );
@@ -334,164 +478,3 @@ export function deviceConnection(key: string, start = false) {
 }
 
 async function readConnection(key: string, start: boolean, wake = false) {
-  if (!deviceAuthEnabled()) return { status: "disconnected" as const };
-  const home = deviceHome(key);
-  let connection = connections.get(key);
-  // Development hot reload may retain a pre-persistence provider instance.
-  if (connection && typeof connection.provider.logoutDevice !== "function") {
-    if (connection.timeout) clearTimeout(connection.timeout);
-    await connection.provider.stop();
-    connections.delete(key);
-    connection = undefined;
-  }
-  // Restore only this identity's saved login; GET never creates a fresh device code.
-  if (!connection && (start || (await savedCredentials(home))))
-    connection = await createConnection(key, home);
-  if (!connection) return { status: "disconnected" as const };
-  await connection.ready;
-  // UI polling and model pickers must not restart an idle authenticated CLI.
-  if (
-    !wake &&
-    connection.status === "connected" &&
-    (await savedCredentials(home))
-  )
-    return {
-      status: "connected" as const,
-      account: connection.account,
-      models: connection.models,
-    };
-  if (!connection.provider.isRunning) {
-    if (connection.provider.hasActiveTurn)
-      throw new DeviceConnectionError(
-        "Codex is recovering from an interrupted turn. Retry shortly.",
-      );
-    await connection.provider.stop();
-    connection.ready = startProcess(key, connection);
-    try {
-      await connection.ready;
-    } catch (error) {
-      await connection.provider.stop();
-      connection.ready = Promise.resolve();
-      if (error instanceof DeviceConnectionError) throw error;
-      connections.delete(key);
-      throw new DeviceConnectionError(
-        "Codex could not restart. Check the server CLI installation.",
-      );
-    }
-    delete connection.modelsFetchedAt;
-    if (connection.status === "pending") {
-      connection.status = "expired";
-      delete connection.login;
-    }
-  }
-  connection.lastUsedAt = Date.now();
-  scheduleIdle(key, connection);
-  try {
-    const account = await connection.provider.readDeviceAccount();
-    if (account) {
-      // Codex owns token refresh; a private file store survives process and server restarts.
-      if (await savedCredentials(home))
-        await chmod(resolve(home, "auth.json"), 0o600);
-      connection.account = account;
-      connection.status = "connected";
-      if (
-        !connection.limits &&
-        typeof connection.provider.readRateLimits === "function"
-      )
-        connection.limits = await connection.provider
-          .readRateLimits()
-          .catch(() => undefined);
-      if (connection.timeout) clearTimeout(connection.timeout);
-      delete connection.login;
-      delete connection.expiresAt;
-      if (
-        !connection.modelsFetchedAt ||
-        Date.now() - connection.modelsFetchedAt > 60_000
-      ) {
-        connection.models = await connection.provider.listModels();
-        connection.modelsFetchedAt = Date.now();
-      }
-    } else if (connection.status === "connected") {
-      connection.status = "disconnected";
-      delete connection.account;
-      delete connection.models;
-    }
-  } catch {
-    // A model/account lookup failure must not silently start a new login or erase credentials.
-    throw new DeviceConnectionError(
-      "Codex could not read your connection. Retry, or reconnect if the problem persists.",
-    );
-  }
-  if (start && !["pending", "connected"].includes(connection.status)) {
-    if (connection.timeout) clearTimeout(connection.timeout);
-    connection.login = await connection.provider.startDeviceLogin();
-    connection.status = "pending";
-    connection.expiresAt = Date.now() + 10 * 60_000;
-    const current = connection;
-    connection.timeout = setTimeout(() => {
-      void exclusive(key, async () => {
-        if (connections.get(key) !== current || current.status !== "pending")
-          return;
-        // Check for a last-second successful login before cancelling.
-        const account = await current.provider
-          .readDeviceAccount()
-          .catch(() => null);
-        if (account) return;
-        current.status = "expired";
-        await current.provider
-          .cancelDeviceLogin(current.login!.loginId)
-          .catch(() => {});
-        delete current.login;
-        await current.provider.stop();
-      }).catch(() => {});
-    }, 10 * 60_000);
-    connection.timeout.unref();
-  }
-  return {
-    status: connection.status,
-    ...(connection.status === "pending" && connection.login
-      ? {
-          verificationUrl: connection.login.verificationUrl,
-          userCode: connection.login.userCode,
-          expiresAt: connection.expiresAt,
-        }
-      : {}),
-    ...(connection.status === "connected"
-      ? { account: connection.account, models: connection.models }
-      : {}),
-  };
-}
-
-export function disconnectDevice(key: string) {
-  return exclusive(key, async () => {
-    const connection = connections.get(key);
-    if (
-      connection &&
-      (connection.leases ||
-        connection.provider.hasActiveTurn ||
-        connection.provider.hasPendingRequests)
-    )
-      throw new DeviceConnectionError(
-        "Stop your current task before disconnecting Codex.",
-      );
-    const home = connection?.home ?? deviceHome(key);
-    if (connection) {
-      if (connection.idleTimeout) clearTimeout(connection.idleTimeout);
-      if (connection.timeout) clearTimeout(connection.timeout);
-      if (connection.login && connection.status === "pending")
-        await connection.provider
-          .cancelDeviceLogin(connection.login.loginId)
-          .catch(() => {});
-      if (typeof connection.provider.logoutDevice === "function")
-        await connection.provider.logoutDevice().catch(() => {});
-      await connection.provider.stop();
-      connections.delete(key);
-    }
-    // Remove only this user's credential file, even if the process had already stopped.
-    await unlink(resolve(home, "auth.json")).catch(
-      (error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-      },
-    );
-  });
-}
