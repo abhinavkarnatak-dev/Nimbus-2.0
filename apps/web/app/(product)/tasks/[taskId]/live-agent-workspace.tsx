@@ -4,7 +4,7 @@ import {
   AlertTriangle,
   ArrowDown,
   Bot,
-  Clock3,
+  ChevronDown,
   MessageSquareText,
   PanelRightClose,
   PanelRightOpen,
@@ -24,7 +24,12 @@ import { useRouter } from "next/navigation";
 import { fileReferenceTarget } from "@/lib/chat-links";
 import { prCardData } from "@/lib/pr-card";
 import { PullRequestChatCard } from "./pull-request-chat-card";
-import { formatWorkDuration, workEventTiming } from "@/lib/work-duration";
+import { formatWorkDuration } from "@/lib/work-duration";
+import {
+  workGroups,
+  workSummary,
+  needsPendingProgress,
+} from "@/lib/progress-presentation";
 import { SkillPrompt } from "../../skill-prompt";
 import { formatIstTime, formatIstDateTime } from "@/lib/display-time";
 import { useCodexAvailability } from "@/lib/use-codex-availability";
@@ -78,6 +83,7 @@ export function LiveAgentWorkspace({
   const [followup, setFollowup] = useState("");
   const [skillIds, setSkillIds] = useState(initialSkillIds ?? []);
   const [sending, setSending] = useState(false);
+  const [pendingAfter, setPendingAfter] = useState<number | null>(null);
   const [sendError, setSendError] = useState("");
   const [requestId, setRequestId] = useState(initialRequestId ?? null);
   const [stopping, setStopping] = useState(false);
@@ -104,7 +110,7 @@ export function LiveAgentWorkspace({
   useLayoutEffect(() => {
     if (followBottom.current && chatScroll.current)
       chatScroll.current.scrollTop = chatScroll.current.scrollHeight;
-  }, [events]);
+  }, [events, pendingAfter]);
   useEffect(() => {
     if (!promptMenuOpen) return;
     const outside = (event: PointerEvent) => {
@@ -146,6 +152,8 @@ export function LiveAgentWorkspace({
       };
       if (value.status) {
         setStatus(value.status);
+        if (terminalStates.has(value.status) || value.status === "cancelling")
+          setPendingAfter(null);
         if ("messageId" in value) setRequestId(value.messageId ?? null);
         if (value.status !== "cancelling") setStopping(false);
         refreshWorkbench();
@@ -297,6 +305,7 @@ export function LiveAgentWorkspace({
         key: crypto.randomUUID(),
       };
     setSending(true);
+    setPendingAfter(latestSequence.current);
     setSendError("");
     try {
       const response = await fetch(`/api/tasks/${taskId}/messages`, {
@@ -314,6 +323,7 @@ export function LiveAgentWorkspace({
       setFollowup("");
       submission.current = null;
     } catch (error) {
+      setPendingAfter(null);
       setSendError(
         error instanceof Error
           ? error.message
@@ -433,7 +443,6 @@ export function LiveAgentWorkspace({
                 event={entry.event}
                 onOpenFile={openFile}
                 taskId={taskId}
-                active={!terminalStates.has(status)}
                 key={entry.event.id}
               />
             ) : entry.events.length === 1 &&
@@ -449,36 +458,23 @@ export function LiveAgentWorkspace({
                 </div>
               </div>
             ) : (
-              <section
-                className={styles.workLog}
-                aria-label="Work log"
+              <WorkProgress
                 key={entry.events[0]!.id}
-              >
-                <div className={styles.workLogHeading}>
-                  <Clock3 size={13} />
-                  <strong>Work log</strong>
-                  <span>
-                    {groupRepeatedWorkEvents(entry.events).length}{" "}
-                    {groupRepeatedWorkEvents(entry.events).length === 1
-                      ? "update"
-                      : "updates"}
-                  </span>
-                </div>
-                {groupRepeatedWorkEvents(entry.events).map((group) => {
-                  const timing = groupTiming(group, events, status, now);
-                  return (
-                    <LiveConversationEvent
-                      event={group.event}
-                      onOpenFile={openFile}
-                      taskId={taskId}
-                      active={timing.running}
-                      durationMs={timing.durationMs}
-                      key={group.event.id}
-                    />
-                  );
-                })}
-              </section>
+                events={entry.events}
+                source={events}
+                status={status}
+                now={now}
+                taskId={taskId}
+                onOpenFile={openFile}
+              />
             ),
+          )}
+          {needsPendingProgress(meaningfulEvents, status, pendingAfter) && (
+            <div className={styles.progress} role="status">
+              <span className={styles.shimmer}>
+                {sending ? "Sending" : "Thinking"}
+              </span>
+            </div>
           )}
         </div>
         <div className={styles.composer}>
@@ -493,6 +489,9 @@ export function LiveAgentWorkspace({
               <ArrowDown size={18} />
             </button>
           )}
+          <p className={styles.chatDisclaimer}>
+            Nimbus can make mistakes. Check important info.
+          </p>
           <form
             className="followup-box"
             data-sending={sending}
@@ -592,49 +591,17 @@ export function LiveAgentWorkspace({
 
 function LiveConversationEvent({
   event,
-  active,
   taskId,
   onOpenFile,
-  durationMs = null,
 }: {
   event: LiveTaskEvent;
-  active: boolean;
   taskId: string;
   onOpenFile: (reference: string) => void;
-  durationMs?: number | null;
 }) {
   const failed = event.status === "failed";
   const user = event.category === "conversation";
-  const running = active;
   const card = prCardData(event.evidence);
   if (card) return <PullRequestChatCard data={card} onOpenFile={onOpenFile} />;
-  if (!["conversation", "agent_message", "message"].includes(event.category))
-    return (
-      <details className={styles.work} open={event.status === "failed"}>
-        <summary>
-          <span className={`${styles.dot} ${running ? styles.running : ""}`} />
-          <strong>{event.title}</strong>
-          <span>
-            {running
-              ? durationMs === null
-                ? "Working"
-                : `Working (${formatWorkDuration(durationMs)})`
-              : event.status === "failed"
-                ? "Failed"
-                : durationMs === null
-                  ? "Recorded"
-                  : `Worked for ${formatWorkDuration(durationMs)}`}
-          </span>
-          <LocalTime value={event.timestamp} />
-        </summary>
-        {event.category === "tool" ? (
-          <pre>{event.whatWasDone}</pre>
-        ) : (
-          <p>{event.whatWasDone}</p>
-        )}
-        {event.whyItWasDone && <p>{event.whyItWasDone}</p>}
-      </details>
-    );
   return (
     <article
       className={`message ${user ? "user-message" : "agent-message"}`}
@@ -670,44 +637,100 @@ function LiveConversationEvent({
   );
 }
 
-function groupRepeatedWorkEvents(events: LiveTaskEvent[]) {
-  const groups: LiveTaskEvent[][] = [];
-  for (const event of events) {
-    const previous = groups.at(-1);
-    if (
-      previous &&
-      previous[0]?.title === event.title &&
-      previous[0]?.category === event.category
-    ) {
-      previous.push(event);
-    } else {
-      groups.push([event]);
-    }
-  }
-  return groups.map((group) => ({ event: group[0]!, events: group }));
-}
-
-function groupTiming(
-  group: { event: LiveTaskEvent; events: LiveTaskEvent[] },
-  source: LiveTaskEvent[],
-  status: string,
-  now: number,
-) {
-  let durationMs = 0;
-  let hasDuration = false;
-  let running = false;
-  for (const event of group.events) {
-    const timing = workEventTiming(event, source, status, now);
-    running ||= timing.running;
-    if (timing.durationMs !== null) {
-      durationMs += timing.durationMs;
-      hasDuration = true;
-    }
-  }
-  return {
-    durationMs: hasDuration ? durationMs : null,
-    running,
-  };
+function WorkProgress({
+  events,
+  source,
+  status,
+  now,
+  onOpenFile,
+}: {
+  events: LiveTaskEvent[];
+  source: LiveTaskEvent[];
+  status: string;
+  now: number;
+  taskId: string;
+  onOpenFile: (reference: string) => void;
+}) {
+  const summary = workSummary(events, source, status, now);
+  return (
+    <>
+      <details className={styles.progress}>
+        <summary>
+          <span className={summary.active ? styles.shimmer : undefined}>
+            {summary.active
+              ? summary.label
+              : summary.durationMs > 0
+                ? `Worked for ${formatWorkDuration(summary.durationMs)}`
+                : "Activity"}
+          </span>
+          {!summary.active && summary.webLabel && (
+            <span>{summary.webLabel}</span>
+          )}
+          {summary.failures > 0 && (
+            <span className={styles.progressFailure}>
+              {summary.failures}{" "}
+              {summary.failures === 1 ? "action failed" : "actions failed"}
+            </span>
+          )}
+          <ChevronDown size={14} />
+        </summary>
+        <div className={styles.progressDetails}>
+          {workGroups(
+            events.filter((event) => !prCardData(event.evidence)),
+          ).map((group) => (
+            <details key={group.events[0]!.id} className={styles.progressGroup}>
+              <summary>
+                {group.label}
+                {group.events.length > 1 ? ` (${group.events.length})` : ""}
+                <ChevronDown size={13} />
+              </summary>
+              {group.events.map((event) =>
+                prCardData(event.evidence) ? (
+                  <PullRequestChatCard
+                    key={event.id}
+                    data={prCardData(event.evidence)!}
+                    onOpenFile={onOpenFile}
+                  />
+                ) : (
+                  <div key={event.id} className={styles.progressEvent}>
+                    {event.category !== "agent_state" && (
+                      <strong
+                        className={
+                          event.status === "failed"
+                            ? styles.progressFailure
+                            : undefined
+                        }
+                      >
+                        {event.title}
+                      </strong>
+                    )}
+                    {event.category === "tool" ? (
+                      <pre>{event.whatWasDone}</pre>
+                    ) : (
+                      <p>{event.whatWasDone}</p>
+                    )}
+                    {event.whyItWasDone && event.category !== "agent_state" && (
+                      <p>{event.whyItWasDone}</p>
+                    )}
+                    <LocalTime value={event.timestamp} />
+                  </div>
+                ),
+              )}
+            </details>
+          ))}
+        </div>
+      </details>
+      {events
+        .filter((event) => prCardData(event.evidence))
+        .map((event) => (
+          <PullRequestChatCard
+            key={event.id}
+            data={prCardData(event.evidence)!}
+            onOpenFile={onOpenFile}
+          />
+        ))}
+    </>
+  );
 }
 
 function LocalTime({ value }: { value: string }) {

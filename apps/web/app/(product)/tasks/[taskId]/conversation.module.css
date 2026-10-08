@@ -46,6 +46,7 @@
 }
 .activityDetails > p,
 .activityDetails > pre {
+  white-space: pre-wrap;
   margin: 10px 0;
   font-size: 12px;
   line-height: 1.6;
@@ -671,4 +672,95 @@
 .promptMenu button:focus-visible,
 .promptMenu button[data-active="true"] {
   background: #f1f2f5;
+}
+.progress {
+  margin: 14px 0 16px 33px;
+  color: #686273;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.progress > summary,
+.progressGroup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+}
+.progress summary::-webkit-details-marker {
+  display: none;
+}
+.progress summary:focus-visible {
+  outline: 2px solid #8c70e8;
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+.progress[open] > summary > svg,
+.progressGroup[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.progressDetails {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid #e9e5f2;
+}
+.progressGroup {
+  margin: 10px 0;
+}
+.progressEvent {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.progressEvent p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 5px 0;
+}
+.progressEvent pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow: auto;
+  color: #373340;
+  background: #f6f5f9;
+  padding: 10px;
+  border-radius: 6px;
+}
+.progressEvent time {
+  font-size: 11px;
+  color: #787180;
+}
+.progressFailure {
+  color: #b52b36;
+}
+.shimmer {
+  background: linear-gradient(100deg, #777080 30%, #bbb0db 48%, #777080 65%);
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: progress-shimmer 1.8s linear infinite;
+}
+@keyframes progress-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    background: none;
+    color: #686273;
+  }
+}
+.chatDisclaimer {
+  margin: 4px 0 8px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #787180;
 }

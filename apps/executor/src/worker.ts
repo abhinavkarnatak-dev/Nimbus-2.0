@@ -33,6 +33,7 @@ import {
   sessionTitlePrompt,
   presentSessionTurn,
   withAgentInstructions,
+  webActivityEvent,
 } from "@nimbus/shared";
 
 import { LocalWorkspaceProvider } from "./local-workspace-provider.js";
@@ -558,6 +559,17 @@ export class TaskWorker {
             throw new Error(update.message);
         }
         if (update.type === "activity") {
+          const webActivity = webActivityEvent(update.method, update.payload);
+          if (webActivity)
+            await event(
+              "running",
+              webActivity.title,
+              webActivity.whatWasDone,
+              "",
+              webActivity.status,
+              "tool",
+              webActivity.evidence,
+            );
           const payload = update.payload as {
             item?: {
               id?: string;

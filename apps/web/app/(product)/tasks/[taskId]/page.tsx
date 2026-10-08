@@ -2,6 +2,7 @@ import { requireIdentity } from "@/lib/auth";
 import { formatIstTime } from "@/lib/display-time";
 import { getTaskDetail } from "@/lib/task-data";
 import { activityEvents } from "@/lib/conversation-events";
+import { groupedActivityEvents } from "@/lib/progress-presentation";
 import { ChangesWorkbench } from "./changes-workbench";
 import prPanelStyles from "./pull-request-panel.module.css";
 import { LiveAgentWorkspace } from "./live-agent-workspace";
@@ -308,7 +309,7 @@ function ActivityPanel({ data }: { data: Detail }) {
         </div>
       </div>
       <div className="activity-feed">
-        {events.map((event, index) => (
+        {groupedActivityEvents(data.events).map((event, index, groups) => (
           <article className="activity-item" key={event.id}>
             <div className="activity-rail">
               <span className={`activity-icon ${event.status}`}>
@@ -325,7 +326,7 @@ function ActivityPanel({ data }: { data: Detail }) {
                   <CircleDot size={13} />
                 )}
               </span>
-              {index < events.length - 1 && <i />}
+              {index < groups.length - 1 && <i />}
             </div>
             <div className="activity-content">
               <details className={styles.activityDetails}>
