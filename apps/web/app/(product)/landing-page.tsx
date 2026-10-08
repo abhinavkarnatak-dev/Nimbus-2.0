@@ -6,8 +6,6 @@ import {
   ArrowUpRight,
   Check,
   CircleDot,
-  Code2,
-  GitBranch,
   ShieldCheck,
   Sparkles,
   Terminal,
@@ -22,6 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import styles from "./landing-page.module.css";
+import { HeroTaskDemo } from "./hero-task-demo";
 
 export function LandingPage() {
   const [motionReady, setMotionReady] = useState(false);
@@ -151,76 +150,7 @@ export function LandingPage() {
           </div>
         </div>
 
-        <div className={styles.heroStage} aria-label="Nimbus agent preview">
-          <div className={`${styles.orbit} ${styles.orbitOne}`} />
-          <div className={`${styles.orbit} ${styles.orbitTwo}`} />
-          <div className={styles.stageGlow} />
-          <div className={styles.terminalCard}>
-            <div className={styles.terminalTop}>
-              <div className={styles.windowDots}>
-                <i />
-                <i />
-                <i />
-              </div>
-              <span>nimbus / task_7f3a</span>
-              <span className={styles.runningTag}>
-                <span /> running
-              </span>
-            </div>
-            <div className={styles.terminalBody}>
-              <div className={styles.promptLine}>
-                <span className={styles.prompt}>you</span>
-                <span>Build an audit log for the new webhook flow</span>
-              </div>
-              <div className={styles.agentLine}>
-                <span className={styles.agent}>nimbus</span>
-                <span>Reading the repository and mapping the event path…</span>
-              </div>
-              <div className={styles.activityLine}>
-                <span className={styles.activityIcon}>
-                  <GitBranch size={13} />
-                </span>
-                Inspecting 42 files
-                <span className={styles.lineTime}>3.2s</span>
-              </div>
-              <div className={styles.activityLine}>
-                <span className={`${styles.activityIcon} ${styles.purple}`}>
-                  <Code2 size={13} />
-                </span>
-                Writing audit-events.ts
-                <span className={styles.lineTime}>8.7s</span>
-              </div>
-              <div className={styles.activityLine}>
-                <span className={`${styles.activityIcon} ${styles.green}`}>
-                  <ShieldCheck size={13} />
-                </span>
-                Tests passed · 18 checks
-                <span className={styles.lineTime}>1.4s</span>
-              </div>
-              <div className={styles.cursorLine}>
-                <span /> awaiting your next move
-              </div>
-            </div>
-          </div>
-          <div className={`${styles.floatCard} ${styles.floatTop}`}>
-            <span className={styles.floatIcon}>
-              <Activity size={14} />
-            </span>
-            <span>
-              <strong>12 durable events</strong>
-              <small>nothing hidden in the run</small>
-            </span>
-          </div>
-          <div className={`${styles.floatCard} ${styles.floatBottom}`}>
-            <span className={`${styles.floatIcon} ${styles.greenIcon}`}>
-              <Check size={15} />
-            </span>
-            <span>
-              <strong>Verified outcome</strong>
-              <small>ready for review</small>
-            </span>
-          </div>
-        </div>
+        <HeroTaskDemo />
       </section>
 
       <section

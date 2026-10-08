@@ -256,6 +256,7 @@
   place-items: center;
   transform: translateY(calc(var(--scroll-progress, 0) * -16px));
   transition: transform 0.2s linear;
+  isolation: isolate;
 }
 .stageGlow {
   position: absolute;
@@ -289,7 +290,7 @@
   overflow: hidden;
   border: 1px solid rgba(206, 197, 255, 0.22);
   border-radius: 14px;
-  background: rgba(20, 22, 30, 0.93);
+  background: #14161e;
   box-shadow:
     0 35px 90px rgba(0, 0, 0, 0.48),
     0 0 0 9px rgba(255, 255, 255, 0.025);
@@ -373,6 +374,44 @@
 .agent {
   color: #75d1a2;
 }
+.streamText {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.streamMeasure {
+  visibility: hidden;
+}
+.streamContent {
+  position: absolute;
+  inset: 0;
+}
+.typingCursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: #a796fa;
+  animation: blink 0.8s steps(2) infinite;
+}
+.heroStage [data-visible] {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+.heroStage [data-visible="false"] {
+  opacity: 0;
+  transform: translateY(5px);
+  transition: none;
+}
+.heroStage[data-demo-paused="true"] .terminalCard,
+.heroStage[data-demo-paused="true"] .typingCursor,
+.heroStage[data-demo-paused="true"] .cursorLine span {
+  animation-play-state: paused;
+}
 .activityLine {
   display: flex;
   align-items: center;
@@ -439,10 +478,13 @@
 .floatTop {
   top: 48px;
   right: -17px;
+  will-change: translate;
 }
 .floatBottom {
   bottom: 50px;
   left: -22px;
+  z-index: 0;
+  will-change: translate;
 }
 .floatIcon {
   width: 27px;
@@ -469,6 +511,16 @@
   margin-top: 2px;
   color: #818492;
   font-size: 9px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .heroStage .terminalCard,
+  .heroStage .typingCursor,
+  .heroStage .cursorLine span {
+    animation: none;
+  }
+  .heroStage [data-visible] {
+    transition: none;
+  }
 }
 .signalStrip {
   max-width: 1320px;
