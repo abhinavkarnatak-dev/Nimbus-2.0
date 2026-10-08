@@ -339,6 +339,7 @@ async function ensureCredentials(key: string, home: string) {
     // Best effort: an unrestored login is the same as no saved login.
   }
 }
+
 // Codex rewrites this file in place, so a read can catch a partial write.
 // Storing one would replace a usable saved login with an unusable one.
 function completeCredential(contents: Buffer): boolean {
