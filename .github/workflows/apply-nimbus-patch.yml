@@ -27,7 +27,8 @@ jobs:
           git config user.name "abhinavkarnatak-dev"
           git config user.email "abhinavkarnatak2004@gmail.com"
           git add -A
-          test "$(git diff --cached --name-only | wc -l)" -eq 14
-          test -z "$(git diff --cached --diff-filter=D --name-only)"
+          test "$(git diff --cached --name-only | wc -l)" -eq 16
+          test "$(git diff --cached --diff-filter=D --name-only | sort | tr '
+' ' ')" = ".github/workflows/apply-nimbus-patch.yml .nimbus-tmp/nimbus.patch.gz.b64 "
           git commit -m "fix: resolve Greptile and CI blockers"
           git push origin HEAD:fix/codex-credential-persistence
