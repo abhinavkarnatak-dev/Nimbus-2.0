@@ -77,6 +77,18 @@ async function exclusive<T>(
   }
 }
 
+// Take an identity's lock only when it is free. The check and the take are
+// synchronous neighbours, so this never queues behind a task that may itself be
+// waiting for the process slot, which is what makes it safe to call from inside
+// the process queue.
+async function exclusiveIfFree<T>(
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T | null> {
+  if (operations.has(key)) return null;
+  return await exclusive(key, operation);
+}
+
 export async function connectedDeviceProvider(key: string, wake = true) {
   const state = await exclusive(key, () => readConnection(key, false, wake));
   const connection = connections.get(key);
@@ -135,6 +147,21 @@ async function suspend(key: string, connection: Connection) {
   return true;
 }
 
+// Freeing a process slot is the only write that happens on another identity's
+// behalf, so it takes that identity's lock and re-checks it under the lock. A
+// disconnect that lands in between would otherwise be undone: the retry for a
+// login that never saved passes clearRevocation, so a write arriving after the
+// revoke would make the disconnected credential live again. When the lock is
+// taken, this identity is skipped rather than waited on.
+async function suspendForSlot(key: string, connection: Connection) {
+  const suspended = await exclusiveIfFree(key, async () => {
+    if (connections.get(key) !== connection) return false;
+    if (busy(connection)) return false;
+    return await suspend(key, connection);
+  });
+  return suspended === true;
+}
+
 function scheduleIdle(key: string, connection: Connection) {
   if (connection.idleTimeout) clearTimeout(connection.idleTimeout);
   const timeout = Number(process.env.NIMBUS_CODEX_IDLE_MS ?? "45000");
@@ -173,7 +200,7 @@ async function startProcess(key: string, connection: Connection) {
           busy(other)
         )
           continue;
-        if (await suspend(otherKey, other)) running--;
+        if (await suspendForSlot(otherKey, other)) running--;
       }
       if (running >= cap)
         throw new DeviceConnectionError(
