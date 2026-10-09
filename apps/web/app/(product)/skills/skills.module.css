@@ -113,12 +113,36 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .skillName {
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  white-space: nowrap;
+}
+.skillName svg {
+  flex-shrink: 0;
+}
+.skillsTable {
+  min-width: 540px;
+}
+.skillsTable th:first-child,
+.skillsTable td:first-child {
+  width: 22%;
+  min-width: 160px;
+}
+.skillsTable th:last-child,
+.skillsTable td:last-child {
+  width: 96px;
+  min-width: 96px;
+}
+.description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.5;
 }
 .list {
   overflow-x: auto;

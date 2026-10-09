@@ -616,78 +616,80 @@ export function LiveAgentWorkspace({
               disabled={sending || status === "cancelling"}
               rows={1}
             />
-            <AttachmentInput
-              onChange={setAttachmentIds}
-              onBusyChange={setAttachmentBusy}
-              key={attachmentReset}
-              disabled={sending || status === "cancelling"}
-            />
-            {canStop ? (
-              <button
-                type="button"
-                className={styles.stopButton}
-                onClick={() => void stopCurrentRequest()}
-                disabled={stopping || status === "cancelling"}
-                aria-label="Stop current request"
-                title={
-                  stopping || status === "cancelling"
-                    ? "Stopping request..."
-                    : "Stop current request"
-                }
-                aria-busy={stopping || status === "cancelling"}
-              >
-                <Square size={14} strokeWidth={2.2} />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className={sending ? styles.sendingButton : undefined}
-                aria-label="Send follow-up"
-                title={
-                  !codexAvailable
-                    ? "Connect Codex to continue sending messages."
-                    : !modelAvailable
-                      ? "Select a model to continue sending messages."
-                      : "Send follow-up"
-                }
-                disabled={
-                  !modelAvailable ||
-                  sending ||
-                  attachmentBusy ||
-                  !followup.trim() ||
-                  status === "cancelling"
-                }
-              >
-                {sending ? "Sending..." : <Send size={14} />}
-              </button>
-            )}
-            <div className={styles.modelPicker}>
-              <FollowupModelPicker
-                key={settingsLocked ? "locked" : "available"}
-                models={models}
-                model={selectedModel}
-                effort={selectedEffort}
-                disabled={settingsLocked}
-                onModelChange={(nextModel) =>
-                  setModelChoice({
-                    base: model,
-                    baseEffort: reasoningEffort,
-                    selected: nextModel,
-                    effort:
-                      preferredCodexEffort(
-                        models.find((item) => item.id === nextModel),
-                      ) || null,
-                  })
-                }
-                onEffortChange={(nextEffort) =>
-                  setModelChoice({
-                    base: model,
-                    baseEffort: reasoningEffort,
-                    selected: selectedModel,
-                    effort: nextEffort,
-                  })
-                }
+            <div className="followup-toolbar">
+              <AttachmentInput
+                onChange={setAttachmentIds}
+                onBusyChange={setAttachmentBusy}
+                key={attachmentReset}
+                disabled={sending || status === "cancelling"}
               />
+              <div className={styles.modelPicker}>
+                <FollowupModelPicker
+                  key={settingsLocked ? "locked" : "available"}
+                  models={models}
+                  model={selectedModel}
+                  effort={selectedEffort}
+                  disabled={settingsLocked}
+                  onModelChange={(nextModel) =>
+                    setModelChoice({
+                      base: model,
+                      baseEffort: reasoningEffort,
+                      selected: nextModel,
+                      effort:
+                        preferredCodexEffort(
+                          models.find((item) => item.id === nextModel),
+                        ) || null,
+                    })
+                  }
+                  onEffortChange={(nextEffort) =>
+                    setModelChoice({
+                      base: model,
+                      baseEffort: reasoningEffort,
+                      selected: selectedModel,
+                      effort: nextEffort,
+                    })
+                  }
+                />
+              </div>
+              {canStop ? (
+                <button
+                  type="button"
+                  className={styles.stopButton}
+                  onClick={() => void stopCurrentRequest()}
+                  disabled={stopping || status === "cancelling"}
+                  aria-label="Stop current request"
+                  title={
+                    stopping || status === "cancelling"
+                      ? "Stopping request..."
+                      : "Stop current request"
+                  }
+                  aria-busy={stopping || status === "cancelling"}
+                >
+                  <Square size={14} strokeWidth={2.2} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className={sending ? styles.sendingButton : undefined}
+                  aria-label="Send follow-up"
+                  title={
+                    !codexAvailable
+                      ? "Connect Codex to continue sending messages."
+                      : !modelAvailable
+                        ? "Select a model to continue sending messages."
+                        : "Send follow-up"
+                  }
+                  disabled={
+                    !modelAvailable ||
+                    sending ||
+                    attachmentBusy ||
+                    !followup.trim() ||
+                    status === "cancelling"
+                  }
+                >
+                  {sending ? "Sending..." : <Send size={14} />}
+                </button>
+              )}
             </div>
           </form>
         </div>

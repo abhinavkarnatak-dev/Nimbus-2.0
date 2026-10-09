@@ -769,9 +769,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 0;
   min-height: 30px;
-  padding-right: 44px;
+  padding-right: 0;
+  order: 1;
   color: var(--muted);
   font-size: 12px;
 }

@@ -233,10 +233,10 @@ export function AttachmentInput({
         type="button"
         disabled={disabled || shown.length >= MAX_ATTACHMENTS}
         title="Attach files (maximum 6 per message)"
+        aria-label="Attach files (maximum 6 per message)"
         onClick={() => chooser.current?.click()}
       >
-        <Paperclip size={15} />
-        <span>Attach</span>
+        <Paperclip size={18} />
       </button>
       {shown.map((file) => (
         <span

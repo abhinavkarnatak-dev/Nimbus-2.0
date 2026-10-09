@@ -58,10 +58,12 @@ const serverReady = () => false;
 
 export function TaskLaunchForm({
   children,
+  controls,
   style,
   initialModelAvailable = false,
 }: {
   children: ReactNode;
+  controls: ReactNode;
   style?: CSSProperties;
   initialModelAvailable?: boolean;
 }) {
@@ -112,7 +114,10 @@ export function TaskLaunchForm({
         <LaunchBusyContext.Provider value={busy || filesBusy}>
           <LaunchModelContext.Provider value={{ available, setAvailable }}>
             {children}
-            <AttachmentInput onBusyChange={setFilesBusy} disabled={busy} />
+            <div className="launch-footer">
+              <AttachmentInput onBusyChange={setFilesBusy} disabled={busy} />
+              <div className="launch-controls">{controls}</div>
+            </div>
           </LaunchModelContext.Provider>
         </LaunchBusyContext.Provider>
       </fieldset>

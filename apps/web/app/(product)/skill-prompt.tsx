@@ -256,7 +256,7 @@ export function SkillPrompt({
                 onClick={() => choose(skill)}
               >
                 <strong>{skill.name}</strong>
-                <span>{skill.description}</span>
+                <span title={skill.description}>{skill.description}</span>
               </button>
             ))
           ) : (

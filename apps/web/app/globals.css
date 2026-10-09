@@ -1243,10 +1243,10 @@ select:focus-visible {
 .followup-icon {
   color: var(--accent);
 }
-.followup-box > button {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
+.followup-toolbar > button {
+  position: static;
+  order: 2;
+  flex-shrink: 0;
   width: 36px;
   height: 36px;
   display: grid;
@@ -1285,7 +1285,7 @@ select:focus-visible {
   outline-offset: 3px;
 }
 
-.followup-box > button:not(:disabled) {
+.followup-toolbar > button:not(:disabled) {
   background: var(--brand-purple);
   color: white;
   cursor: pointer;
@@ -1295,6 +1295,12 @@ select:focus-visible {
   color: #f99b9b;
   font-size: 13px;
 }
+.followup-toolbar { display: flex; align-items: flex-end; gap: 8px; }
+.followup-toolbar > div:first-child { flex: 1; min-width: 32px; padding: 0; }
+.launch-controls { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; min-width: 0; }
+.launch-card .launch-footer { flex-wrap: nowrap; align-items: flex-end; }
+.launch-footer > div:first-child { flex: 1; min-width: 32px; padding: 0; }
+.launch-controls .launch-action { margin-left: 0; }
 .workbench-pane {
   min-width: 0;
   min-height: 0;

@@ -394,7 +394,7 @@ export function SkillsManager({
       )}
       <section className={`card ${styles.list}`} aria-label="Saved skills">
         {skills.length ? (
-          <table className="table">
+          <table className={`table ${styles.skillsTable}`}>
             <thead>
               <tr>
                 <th>Name</th>
@@ -411,7 +411,14 @@ export function SkillsManager({
                       <strong>{skill.name}</strong>
                     </span>
                   </td>
-                  <td>{skill.description}</td>
+                  <td>
+                    <span
+                      className={styles.description}
+                      title={skill.description}
+                    >
+                      {skill.description}
+                    </span>
+                  </td>
                   <td>
                     <div className={styles.actions}>
                       <>

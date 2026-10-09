@@ -53,7 +53,21 @@ export default async function DashboardPage() {
           <div className="launch-accent">
             <Code2 size={19} />
           </div>
-          <TaskLaunchForm initialModelAvailable={models.length > 0}>
+          <TaskLaunchForm
+            initialModelAvailable={models.length > 0}
+            controls={
+              <>
+                <RepositoryPicker repositories={visibleRepositories} />
+                <ModelPicker initialModels={models} />
+                <input
+                  type="hidden"
+                  name="idempotencyKey"
+                  value={`dashboard-${crypto.randomUUID()}`}
+                />
+                <TaskLaunchButton />
+              </>
+            }
+          >
             <SkillPrompt
               submitOnEnter
               id="task-objective"
@@ -66,16 +80,6 @@ export default async function DashboardPage() {
               autoGrow
               placeholder="What should Nimbus build, fix, or investigate? Add any constraints or definition of done."
             />
-            <div className="launch-footer">
-              <RepositoryPicker repositories={visibleRepositories} />
-              <ModelPicker initialModels={models} />
-              <input
-                type="hidden"
-                name="idempotencyKey"
-                value={`dashboard-${crypto.randomUUID()}`}
-              />
-              <TaskLaunchButton />
-            </div>
           </TaskLaunchForm>
         </section>
 

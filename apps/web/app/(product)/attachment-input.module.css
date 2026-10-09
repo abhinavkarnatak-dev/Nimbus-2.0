@@ -20,6 +20,23 @@
 }
 .attach {
   cursor: pointer;
+  border: 0;
+  background: transparent;
+  padding: 7px;
+  flex-shrink: 0;
+}
+.attach:hover:not(:disabled) {
+  background: #ede8fa;
+}
+:global(.launch-card) .attach {
+  color: #b7afcf;
+}
+:global(.launch-card) .attach:hover:not(:disabled) {
+  background: #292632;
+}
+.attach:focus-visible {
+  outline: 2px solid #8064e9;
+  outline-offset: 2px;
 }
 .root .attach,
 .root .chip {

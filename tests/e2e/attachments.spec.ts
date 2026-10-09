@@ -146,6 +146,89 @@ async function setup(page: Page, followup = false) {
   await expect(page.getByLabel("Attach files", { exact: true })).toBeAttached();
   return text;
 }
+test("long skill descriptions stay compact in the catalog and slash picker", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    process.env.NIMBUS_ATTACHMENT_E2E !== "true",
+    "Disposable database only",
+  );
+  const id = "skl_compact_description_fixture";
+  const description =
+    "Iteratively improves a pull request until review comments are resolved. ".repeat(
+      6,
+    );
+  await page.request.post("/api/auth/local");
+  await fixtureSql`INSERT INTO skills(id,organization_id,owner_user_id,slug,name,description,summary) VALUES(${id},'org_local_01J000000000000000000001','usr_local_01J000000000000000000001','compact-greploop','greploop',${description},'Review pull requests')`;
+  try {
+    await page.goto("/skills");
+    const row = page
+      .getByRole("row")
+      .filter({
+        has: page.getByRole("button", { name: "Edit greploop", exact: true }),
+      });
+    await expect(row.locator("strong")).toHaveCSS("white-space", "nowrap");
+    const summary = row.locator("td").nth(1).locator("span");
+    await expect(summary).toHaveAttribute("title", description);
+    await expect(summary).toHaveCSS("-webkit-line-clamp", "2");
+    const edit = (await row
+      .getByRole("button", { name: "Edit greploop" })
+      .boundingBox())!;
+    const remove = (await row
+      .getByRole("button", { name: "Delete greploop" })
+      .boundingBox())!;
+    expect(Math.abs(edit.y - remove.y)).toBeLessThan(2);
+    await page.screenshot({ path: testInfo.outputPath("compact-skills.png") });
+    await page.goto("/");
+    await page.getByLabel("Task request").fill("/grep");
+    const option = page.getByRole("option").filter({ hasText: "greploop" });
+    await expect(option).toBeVisible();
+    await expect(option.locator("span")).toHaveCSS("-webkit-line-clamp", "2");
+    await expect(option.locator("span")).toHaveAttribute("title", description);
+    await page.screenshot({
+      path: testInfo.outputPath("compact-skill-picker.png"),
+    });
+  } finally {
+    await fixtureSql`DELETE FROM skills WHERE id=${id}`;
+  }
+});
+
+test("composer controls stay left/right aligned on dashboard and follow-up", async ({
+  page,
+}, testInfo) => {
+  await setup(page);
+  const attach = page.getByRole("button", {
+    name: "Attach files (maximum 6 per message)",
+    exact: true,
+  });
+  await expect(attach).toHaveText("");
+  await expect(attach).toHaveCSS("border-top-width", "0px");
+  const left = (await attach.boundingBox())!;
+  const controls = (await page.locator(".launch-controls").boundingBox())!;
+  const start = (await page
+    .getByRole("button", { name: "Start", exact: true })
+    .boundingBox())!;
+  expect(controls.x).toBeGreaterThan(left.x + left.width);
+  expect(start.x + start.width).toBeGreaterThan(
+    controls.x + controls.width - 3,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("dashboard-composer.png"),
+  });
+  await page.goto(`/tasks/${taskId}`);
+  const clip = (await attach.boundingBox())!;
+  const picker = (await page
+    .locator(".followup-toolbar .model-picker")
+    .boundingBox())!;
+  const send = (await page
+    .getByRole("button", { name: "Send follow-up", exact: true })
+    .boundingBox())!;
+  expect(picker.x).toBeGreaterThan(clip.x + clip.width);
+  expect(send.x).toBeGreaterThan(picker.x + picker.width);
+  expect(Math.abs(send.y + send.height - clip.y - clip.height)).toBeLessThan(6);
+  await page.screenshot({ path: testInfo.outputPath("followup-composer.png") });
+});
+
 test("dashboard extracts six mixed files and rejects a seventh without losing them", async ({
   page,
 }) => {
