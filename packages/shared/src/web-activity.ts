@@ -34,6 +34,33 @@ function queryWebsite(query: string): string | null {
 // A presentation-only projection of Codex app-server's confirmed webSearch
 // items. Never infer a search from the user's prompt or claim results exist.
 export function webActivityEvent(method: string, payload: unknown) {
+  if (method === "nimbus/urlRead") {
+    const read = record(payload);
+    const url = text(read.url, 4096);
+    const site = website(url);
+    const status =
+      read.status === "running"
+        ? ("running" as const)
+        : read.status === "succeeded"
+          ? ("succeeded" as const)
+          : ("failed" as const);
+    return {
+      title: `${status === "running" ? "Reading" : status === "succeeded" ? "Read" : "Could not read"} ${site ?? "a web page"}`,
+      whatWasDone: [
+        url ? `Page: ${url}` : "",
+        text(read.message, 1000),
+        read.truncated ? "Returned text is truncated." : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 2000),
+      status,
+      evidence: [
+        ...(text(read.id, 250) ? [`codex-item:${text(read.id, 250)}`] : []),
+        "web-activity:openPage",
+      ],
+    };
+  }
   if (method !== "item/started" && method !== "item/completed") return null;
   const item = record(record(payload).item);
   if (item.type !== "webSearch") return null;

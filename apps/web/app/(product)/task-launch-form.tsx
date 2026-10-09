@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { Play } from "lucide-react";
+import { AttachmentInput } from "./attachment-input";
 
 const LaunchBusyContext = createContext(false);
 const LaunchModelContext = createContext<{
@@ -66,12 +67,13 @@ export function TaskLaunchForm({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [filesBusy, setFilesBusy] = useState(false);
   const [error, setError] = useState("");
   const [available, setAvailable] = useState(initialModelAvailable);
   const ready = useSyncExternalStore(subscribe, clientReady, serverReady);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || filesBusy) return;
     const body = new FormData(event.currentTarget);
     if (!ready || !available || !String(body.get("model") ?? "").trim()) return;
     setBusy(true);
@@ -107,9 +109,10 @@ export function TaskLaunchForm({
       aria-busy={busy}
     >
       <fieldset disabled={busy || !ready} style={{ display: "contents" }}>
-        <LaunchBusyContext.Provider value={busy}>
+        <LaunchBusyContext.Provider value={busy || filesBusy}>
           <LaunchModelContext.Provider value={{ available, setAvailable }}>
             {children}
+            <AttachmentInput onBusyChange={setFilesBusy} disabled={busy} />
           </LaunchModelContext.Provider>
         </LaunchBusyContext.Provider>
       </fieldset>

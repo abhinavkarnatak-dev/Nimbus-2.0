@@ -274,6 +274,10 @@ export const taskMessages = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     content: text("content").notNull(),
+    attachmentIds: jsonb("attachment_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     idempotencyKey: text("idempotency_key").notNull(),
     selectedSkills: jsonb("selected_skills")
       .$type<import("@nimbus/shared").SkillSnapshot[]>()
@@ -295,6 +299,39 @@ export const taskMessages = pgTable(
       "task_messages_status_valid",
       sql`${table.status} IN ('queued','running','completed','failed','cancelling','cancelled')`,
     ),
+  ],
+);
+
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+    messageId: text("message_id").references(() => taskMessages.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    size: integer("size").notNull(),
+    contentType: text("content_type").notNull(),
+    objectKey: text("object_key").notNull(),
+    textKey: text("text_key").notNull(),
+    status: text("status").notNull().default("uploading"),
+    extractionWarning: text("extraction_warning"),
+    ...timestamps,
+  },
+  (table) => [
+    index("message_attachments_owner_idx").on(
+      table.organizationId,
+      table.userId,
+      table.status,
+    ),
+    index("message_attachments_task_idx").on(table.taskId, table.messageId),
   ],
 );
 

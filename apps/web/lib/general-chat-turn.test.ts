@@ -21,7 +21,7 @@ vi.mock("./available-repositories", () => ({
   listAvailableRepositories: fixture.repositories,
 }));
 vi.mock("./repository-handoff", () => ({
-  REPOSITORY_CHAT_VERSION: 6,
+  REPOSITORY_CHAT_VERSION: 8,
   conversationHandoffContext: fixture.handoffContext,
   replaceConversationThread: fixture.replaceThread,
   recoveredConversationContext: fixture.recoveredContext,
@@ -70,7 +70,7 @@ const task = {
   title: "Demo",
   titleGeneratedAt: "2026-10-07",
 } as typeof tasks.$inferSelect;
-function setup(version = 6) {
+function setup(version = 8) {
   fixture.rows = [
     [
       {
@@ -129,7 +129,7 @@ describe("general chat automatic skills streaming integration", () => {
       expect.objectContaining({ providerThreadId: "thread" }),
       "replacement",
       null,
-      6,
+      8,
       "Earlier user context",
     );
     expect(startChatThread).toHaveBeenCalledExactlyOnceWith("test-model");
@@ -257,6 +257,10 @@ describe("general chat automatic skills streaming integration", () => {
       expect(input).not.toHaveProperty("workspacePath");
       expect(input).not.toHaveProperty("onToolCall");
       expect(await input.onSkillCall!({ id: skill.id })).toMatchObject(skill);
+      expect(input.prompt).toContain("call nimbus_read_url before answering");
+      expect(await input.onUrlCall!({ url: "http://127.0.0.1" })).toMatchObject(
+        { success: false, code: "unsafe_url" },
+      );
       yield {
         type: "agent_message_delta" as const,
         text: "Here's the UI.",
@@ -329,7 +333,7 @@ describe("general chat automatic skills streaming integration", () => {
       expect.objectContaining({ providerThreadId: "thread" }),
       "replacement",
       null,
-      6,
+      8,
     );
   });
   it("uses the message's model on the existing read-only thread", async () => {
@@ -379,7 +383,7 @@ describe("general chat automatic skills streaming integration", () => {
     expect(await response.json()).toEqual({ threadId: "new-thread" });
     expect(startChatThread).toHaveBeenCalledExactlyOnceWith("test-model");
     expect(fixture.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ providerConfigVersion: 6, workspaceId: null }),
+      expect.objectContaining({ providerConfigVersion: 8, workspaceId: null }),
     );
   });
 });

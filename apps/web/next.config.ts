@@ -2,6 +2,15 @@ import type { NextConfig } from "next";
 import { resolve } from "node:path";
 
 const workspaceRoot = resolve(process.cwd(), "../..");
+// Browser PUTs go directly to the configured private R2 account, not to Render.
+// Restrict CSP to that exact account origin; do not allow arbitrary storage hosts.
+const attachmentEndpoint = process.env.R2_ENDPOINT?.trim() ?? "";
+const attachmentOrigin =
+  /^https:\/\/[a-z0-9]+(?:\.(?:eu|us|fedramp))?\.r2\.cloudflarestorage\.com\/?$/i.test(
+    attachmentEndpoint,
+  )
+    ? new URL(attachmentEndpoint).origin
+    : "";
 
 const config: NextConfig = {
   reactStrictMode: true,
@@ -51,8 +60,7 @@ const config: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value:
-              "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com; connect-src 'self' https://*.posthog.com; worker-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://github.com https://accounts.google.com",
+            value: `default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com; connect-src 'self' https://*.posthog.com${attachmentOrigin ? ` ${attachmentOrigin}` : ""}; worker-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://github.com https://accounts.google.com`,
           },
         ],
       },

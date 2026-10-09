@@ -32,8 +32,21 @@ import {
   isLocalDeviceRequest,
 } from "@/lib/codex-device";
 import { skillIdsSchema } from "@nimbus/shared";
+import { attachmentIdsSchema } from "@/lib/attachment-policy";
+import {
+  AttachmentBindingError,
+  bindAttachments,
+} from "@/lib/message-attachments";
 
 const CreateTaskSchema = z.object({
+  attachmentIds: z.preprocess((value) => {
+    if (typeof value !== "string") return value ?? [];
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }, attachmentIdsSchema),
   repositoryId: z.union([z.literal(""), z.string().min(12)]).optional(),
   objective: z.string().trim().min(1).max(8000),
   model: z.string().trim().min(1).max(200),
@@ -210,16 +223,26 @@ export async function POST(request: Request) {
         status: "queued",
         baseRef: repository?.defaultBranch ?? "",
       });
+      const messageId = `msg_${randomUUID().replaceAll("-", "")}`;
       await tx.insert(taskMessages).values({
-        id: `msg_${randomUUID().replaceAll("-", "")}`,
+        id: messageId,
         taskId,
         userId: identity.userId,
         content: input.objective,
+        attachmentIds: input.attachmentIds,
         selectedSkills,
         requestedModel: executionModel.id,
         requestedReasoningEffort: reasoningEffort ?? null,
         idempotencyKey: input.idempotencyKey,
       });
+      await bindAttachments(
+        tx,
+        input.attachmentIds,
+        identity.organizationId,
+        identity.userId,
+        taskId,
+        messageId,
+      );
       await tx.insert(taskEvents).values({
         id: `evt_${randomUUID().replaceAll("-", "")}`,
         taskId,
@@ -269,6 +292,8 @@ export async function POST(request: Request) {
       });
     });
   } catch (error) {
+    if (error instanceof AttachmentBindingError)
+      return NextResponse.json({ error: error.message }, { status: 400 });
     const [existing] = await db()
       .select()
       .from(idempotencyKeys)

@@ -14,3 +14,5 @@ test-results/
 .nimbus/
 .nimbus-tools/
 *.tsbuildinfo
+# Generated from the pinned PDF parser during dev/build.
+apps/web/public/pdf.worker.min.mjs

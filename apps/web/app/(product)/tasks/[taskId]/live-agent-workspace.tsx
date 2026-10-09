@@ -35,6 +35,9 @@ import { formatIstTime, formatIstDateTime } from "@/lib/display-time";
 import { useCodexModels } from "@/lib/use-codex-availability";
 import { preferredCodexEffort } from "@nimbus/codex/model-policy";
 import { FollowupModelPicker } from "./followup-model-picker";
+import { AttachmentInput, AttachmentLinks } from "../../attachment-input";
+import { ChatText } from "../../chat-text";
+import type { AttachmentView } from "@/lib/attachment-policy";
 
 interface LiveTaskEvent {
   id: string;
@@ -110,6 +113,28 @@ export function LiveAgentWorkspace({
   const [followup, setFollowup] = useState("");
   const [skillIds, setSkillIds] = useState(initialSkillIds ?? []);
   const [sending, setSending] = useState(false);
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [attachmentReset, setAttachmentReset] = useState(0);
+  const [attachedFiles, setAttachedFiles] = useState<AttachmentView[]>([]);
+  const [initialAttachmentMessageId, setInitialAttachmentMessageId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    let alive = true;
+    void fetch(`/api/attachments?taskId=${taskId}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : { files: [] }))
+      .then((result) => {
+        if (alive) {
+          setAttachedFiles(result.files ?? []);
+          setInitialAttachmentMessageId(result.initialMessageId ?? null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [taskId, sending]);
   const [pendingAfter, setPendingAfter] = useState<number | null>(null);
   const [sendError, setSendError] = useState("");
   const [requestId, setRequestId] = useState(initialRequestId ?? null);
@@ -120,6 +145,7 @@ export function LiveAgentWorkspace({
     skills: string;
     model: string;
     effort: string | null;
+    attachments: string;
     key: string;
   } | null>(null);
   const [now, setNow] = useState(() =>
@@ -322,19 +348,27 @@ export function LiveAgentWorkspace({
 
   const sendFollowup = async () => {
     const content = followup.trim();
-    if (!content || sending || !modelAvailable || status === "cancelling")
+    if (
+      !content ||
+      sending ||
+      attachmentBusy ||
+      !modelAvailable ||
+      status === "cancelling"
+    )
       return;
     if (
       submission.current?.content !== content ||
       submission.current.skills !== JSON.stringify(skillIds) ||
       submission.current.model !== selectedModel ||
-      submission.current.effort !== selectedEffort
+      submission.current.effort !== selectedEffort ||
+      submission.current.attachments !== JSON.stringify(attachmentIds)
     )
       submission.current = {
         content,
         skills: JSON.stringify(skillIds),
         model: selectedModel,
         effort: selectedEffort,
+        attachments: JSON.stringify(attachmentIds),
         key: crypto.randomUUID(),
       };
     setSending(true);
@@ -350,12 +384,16 @@ export function LiveAgentWorkspace({
           skillIds,
           model: selectedModel,
           reasoningEffort: selectedEffort,
+          attachmentIds,
         }),
       });
       const result = (await response.json()) as { error?: string };
       if (!response.ok)
         throw new Error(result.error ?? "Could not send your follow-up");
       setFollowup("");
+      setAttachmentIds([]);
+      setAttachmentBusy(false);
+      setAttachmentReset((value) => value + 1);
       submission.current = null;
     } catch (error) {
       setPendingAfter(null);
@@ -471,7 +509,12 @@ export function LiveAgentWorkspace({
             tabIndex={-1}
           >
             <div>
-              <p>{objective}</p>
+              <ChatText text={objective} />
+              <AttachmentLinks
+                files={attachedFiles.filter(
+                  (file) => file.messageId === initialAttachmentMessageId,
+                )}
+              />
               <header>
                 <LocalTime value={createdAt} />
               </header>
@@ -489,6 +532,11 @@ export function LiveAgentWorkspace({
             ) : entry.kind === "message" ? (
               <LiveConversationEvent
                 event={entry.event}
+                attachments={attachedFiles.filter(
+                  (file) =>
+                    Array.isArray(entry.event.evidence) &&
+                    entry.event.evidence.includes(`message:${file.messageId}`),
+                )}
                 onOpenFile={openFile}
                 taskId={taskId}
                 key={entry.event.id}
@@ -568,6 +616,12 @@ export function LiveAgentWorkspace({
               disabled={sending || status === "cancelling"}
               rows={1}
             />
+            <AttachmentInput
+              onChange={setAttachmentIds}
+              onBusyChange={setAttachmentBusy}
+              key={attachmentReset}
+              disabled={sending || status === "cancelling"}
+            />
             {canStop ? (
               <button
                 type="button"
@@ -599,6 +653,7 @@ export function LiveAgentWorkspace({
                 disabled={
                   !modelAvailable ||
                   sending ||
+                  attachmentBusy ||
                   !followup.trim() ||
                   status === "cancelling"
                 }
@@ -671,10 +726,12 @@ function LiveConversationEvent({
   event,
   taskId,
   onOpenFile,
+  attachments = [],
 }: {
   event: LiveTaskEvent;
   taskId: string;
   onOpenFile: (reference: string) => void;
+  attachments?: AttachmentView[];
 }) {
   const failed = event.status === "failed";
   const user = event.category === "conversation";
@@ -693,7 +750,7 @@ function LiveConversationEvent({
       )}
       <div>
         {user ? (
-          <p className={styles.response}>{event.whatWasDone}</p>
+          <ChatText className={styles.response} text={event.whatWasDone} />
         ) : (
           <MarkdownMessage
             text={event.whatWasDone}
@@ -701,6 +758,7 @@ function LiveConversationEvent({
             onOpenFile={onOpenFile}
           />
         )}
+        {user && <AttachmentLinks files={attachments} />}
         {!user && event.whyItWasDone && (
           <p className="decision-note">
             <span>Why</span>

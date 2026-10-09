@@ -25,10 +25,16 @@ import {
   isSelectableEffort,
 } from "@/lib/codex-models";
 import { preferredCodexEffort } from "@nimbus/codex/model-policy";
+import { attachmentIdsSchema } from "@/lib/attachment-policy";
+import {
+  AttachmentBindingError,
+  bindAttachments,
+} from "@/lib/message-attachments";
 
 const inputSchema = z
   .object({
     content: z.string().trim().min(1).max(8000),
+    attachmentIds: attachmentIdsSchema.optional(),
     idempotencyKey: z.string().uuid(),
     skillIds: skillIdsSchema.optional(),
     model: z.string().trim().min(1).max(200).optional(),
@@ -87,273 +93,298 @@ export async function POST(
       { error: "Could not validate Codex models. Try again." },
       { status: 503 },
     );
-  const result = await db().transaction(async (tx) => {
-    const [task] = await tx
-      .select()
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.id, taskId),
-          eq(tasks.organizationId, identity.organizationId),
-        ),
-      )
-      .for("update");
-    if (!task) return { status: 404, error: "Session not found" };
-    if (task.archivedAt || task.status === "cancelling")
-      return {
-        status: 409,
-        error: "This session cannot accept a follow-up right now",
-      };
-    const [repository] = task.repositoryId
-      ? await tx
-          .select({ archived: repositories.archived })
-          .from(repositories)
-          .where(
-            and(
-              eq(repositories.id, task.repositoryId),
-              eq(repositories.organizationId, identity.organizationId),
-            ),
-          )
-      : [];
-    if (task.repositoryId && (!repository || repository.archived))
-      return { status: 403, error: "Repository access is unavailable" };
-    const [existing] = await tx
-      .select()
-      .from(taskMessages)
-      .where(
-        and(
-          eq(taskMessages.taskId, taskId),
-          eq(taskMessages.idempotencyKey, input.idempotencyKey),
-        ),
-      );
-    if (existing)
-      return existing.content === input.content &&
-        (input.model === undefined ||
-          existing.requestedModel === input.model) &&
-        (input.reasoningEffort === undefined ||
-          existing.requestedReasoningEffort === input.reasoningEffort) &&
-        (input.skillIds === undefined ||
-          JSON.stringify(existing.selectedSkills.map((skill) => skill.id)) ===
-            JSON.stringify(input.skillIds))
-        ? { status: 202, messageId: existing.id, duplicate: true }
-        : {
-            status: 409,
-            error: "Request key was already used for another message",
-          };
-    let selected = input.model
-      ? models.find((model) => model.id === input.model)
-      : undefined;
-    if (input.model && !selected)
-      return {
-        status: 400,
-        error: "Selected Codex model is not in the current account catalog",
-      };
-    // Shared tasks still execute through their original owner's Codex account.
-    // A collaborator's own catalog must not authorize an unavailable owner model.
-    if (
-      selected &&
-      task.createdByUserId &&
-      task.createdByUserId !== identity.userId
-    ) {
-      const executionModels = await getSelectableCodexModels(
-        task.createdByUserId,
-        identity.organizationId,
-        tx,
-      ).catch(() => null);
-      if (!executionModels)
+  const result = await db()
+    .transaction(async (tx) => {
+      const [task] = await tx
+        .select()
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.id, taskId),
+            eq(tasks.organizationId, identity.organizationId),
+          ),
+        )
+        .for("update");
+      if (!task) return { status: 404, error: "Session not found" };
+      if (task.archivedAt || task.status === "cancelling")
         return {
-          status: 503,
-          error:
-            "Could not validate the session owner's Codex models. Try again.",
+          status: 409,
+          error: "This session cannot accept a follow-up right now",
         };
-      const executionModel = executionModels.find(
-        (model) => model.id === selected!.id,
-      );
-      if (!executionModel)
+      const [repository] = task.repositoryId
+        ? await tx
+            .select({ archived: repositories.archived })
+            .from(repositories)
+            .where(
+              and(
+                eq(repositories.id, task.repositoryId),
+                eq(repositories.organizationId, identity.organizationId),
+              ),
+            )
+        : [];
+      if (task.repositoryId && (!repository || repository.archived))
+        return { status: 403, error: "Repository access is unavailable" };
+      const [existing] = await tx
+        .select()
+        .from(taskMessages)
+        .where(
+          and(
+            eq(taskMessages.taskId, taskId),
+            eq(taskMessages.idempotencyKey, input.idempotencyKey),
+          ),
+        );
+      if (existing)
+        return existing.content === input.content &&
+          JSON.stringify(existing.attachmentIds ?? []) ===
+            JSON.stringify(input.attachmentIds ?? []) &&
+          (input.model === undefined ||
+            existing.requestedModel === input.model) &&
+          (input.reasoningEffort === undefined ||
+            existing.requestedReasoningEffort === input.reasoningEffort) &&
+          (input.skillIds === undefined ||
+            JSON.stringify(existing.selectedSkills.map((skill) => skill.id)) ===
+              JSON.stringify(input.skillIds))
+          ? { status: 202, messageId: existing.id, duplicate: true }
+          : {
+              status: 409,
+              error: "Request key was already used for another message",
+            };
+      let selected = input.model
+        ? models.find((model) => model.id === input.model)
+        : undefined;
+      if (input.model && !selected)
         return {
           status: 400,
-          error:
-            "Selected model is unavailable for this session's Codex account",
+          error: "Selected Codex model is not in the current account catalog",
         };
-      selected = executionModel;
-    }
-    if (
-      selected &&
-      process.env.NIMBUS_CODING_PROVIDER === "fake" &&
-      selected.id !== "fake-codex-test-provider"
-    )
-      return {
-        status: 503,
-        error: "The simulation provider cannot execute this Codex model",
-      };
-    const changingModel =
-      input.model !== undefined && input.model !== task.requestedModel;
-    if (
-      input.reasoningEffort != null &&
-      selected &&
-      !isSelectableEffort(selected, input.reasoningEffort)
-    )
-      return {
-        status: 400,
-        error: "Selected thinking effort is unavailable for this model",
-      };
-    const requestedModel = input.model ?? task.requestedModel;
-    const requestedReasoningEffort =
-      input.reasoningEffort !== undefined
-        ? input.reasoningEffort
-        : changingModel && selected
-          ? task.requestedReasoningEffort &&
-            isSelectableEffort(selected, task.requestedReasoningEffort)
-            ? task.requestedReasoningEffort
-            : preferredCodexEffort(selected) || null
-          : task.requestedReasoningEffort;
-    if (
-      changingModel ||
-      requestedReasoningEffort !== task.requestedReasoningEffort
-    ) {
-      const [inflight] = await tx
+      // Shared tasks still execute through their original owner's Codex account.
+      // A collaborator's own catalog must not authorize an unavailable owner model.
+      if (
+        selected &&
+        task.createdByUserId &&
+        task.createdByUserId !== identity.userId
+      ) {
+        const executionModels = await getSelectableCodexModels(
+          task.createdByUserId,
+          identity.organizationId,
+          tx,
+        ).catch(() => null);
+        if (!executionModels)
+          return {
+            status: 503,
+            error:
+              "Could not validate the session owner's Codex models. Try again.",
+          };
+        const executionModel = executionModels.find(
+          (model) => model.id === selected!.id,
+        );
+        if (!executionModel)
+          return {
+            status: 400,
+            error:
+              "Selected model is unavailable for this session's Codex account",
+          };
+        selected = executionModel;
+      }
+      if (
+        selected &&
+        process.env.NIMBUS_CODING_PROVIDER === "fake" &&
+        selected.id !== "fake-codex-test-provider"
+      )
+        return {
+          status: 503,
+          error: "The simulation provider cannot execute this Codex model",
+        };
+      const changingModel =
+        input.model !== undefined && input.model !== task.requestedModel;
+      if (
+        input.reasoningEffort != null &&
+        selected &&
+        !isSelectableEffort(selected, input.reasoningEffort)
+      )
+        return {
+          status: 400,
+          error: "Selected thinking effort is unavailable for this model",
+        };
+      const requestedModel = input.model ?? task.requestedModel;
+      const requestedReasoningEffort =
+        input.reasoningEffort !== undefined
+          ? input.reasoningEffort
+          : changingModel && selected
+            ? task.requestedReasoningEffort &&
+              isSelectableEffort(selected, task.requestedReasoningEffort)
+              ? task.requestedReasoningEffort
+              : preferredCodexEffort(selected) || null
+            : task.requestedReasoningEffort;
+      if (
+        changingModel ||
+        requestedReasoningEffort !== task.requestedReasoningEffort
+      ) {
+        const [inflight] = await tx
+          .select({ id: taskMessages.id })
+          .from(taskMessages)
+          .where(
+            and(
+              eq(taskMessages.taskId, taskId),
+              inArray(taskMessages.status, ["queued", "running"]),
+            ),
+          )
+          .limit(1);
+        if (
+          inflight ||
+          ![
+            "completed",
+            "failed",
+            "cancelled",
+            "paused",
+            "pr_open",
+            "awaiting_user",
+          ].includes(task.status)
+        )
+          return {
+            status: 409,
+            error:
+              "Wait for the current request to finish before changing model or thinking effort",
+          };
+      }
+      const pending = await tx
         .select({ id: taskMessages.id })
         .from(taskMessages)
         .where(
           and(
             eq(taskMessages.taskId, taskId),
-            inArray(taskMessages.status, ["queued", "running"]),
+            eq(taskMessages.status, "queued"),
           ),
         )
-        .limit(1);
-      if (
-        inflight ||
-        ![
-          "completed",
-          "failed",
-          "cancelled",
-          "paused",
-          "pr_open",
-          "awaiting_user",
-        ].includes(task.status)
-      )
+        .limit(20);
+      if (pending.length >= 20)
         return {
-          status: 409,
-          error:
-            "Wait for the current request to finish before changing model or thinking effort",
+          status: 429,
+          error: "This session already has 20 queued messages",
         };
-    }
-    const pending = await tx
-      .select({ id: taskMessages.id })
-      .from(taskMessages)
-      .where(
-        and(eq(taskMessages.taskId, taskId), eq(taskMessages.status, "queued")),
-      )
-      .limit(20);
-    if (pending.length >= 20)
-      return {
-        status: 429,
-        error: "This session already has 20 queued messages",
-      };
-    const messageId = `msg_${randomUUID().replaceAll("-", "")}`;
-    const available =
-      input.skillIds === undefined
-        ? await listChatSkills(identity.organizationId, identity.userId, tx)
-        : [];
-    const ids =
-      input.skillIds ??
-      task.selectedSkillIds.filter((id) =>
-        available.some((skill) => skill.id === id),
+      const messageId = `msg_${randomUUID().replaceAll("-", "")}`;
+      const available =
+        input.skillIds === undefined
+          ? await listChatSkills(identity.organizationId, identity.userId, tx)
+          : [];
+      const ids =
+        input.skillIds ??
+        task.selectedSkillIds.filter((id) =>
+          available.some((skill) => skill.id === id),
+        );
+      const selectedSkills = await resolveChatSkills(
+        identity.organizationId,
+        identity.userId,
+        ids,
+        tx,
       );
-    const selectedSkills = await resolveChatSkills(
-      identity.organizationId,
-      identity.userId,
-      ids,
-      tx,
-    );
-    if (!selectedSkills)
-      return {
-        status: 400,
-        error: "One or more selected skills are unavailable",
-      };
-    await tx
-      .update(tasks)
-      .set({ selectedSkillIds: ids, requestedModel, requestedReasoningEffort })
-      .where(eq(tasks.id, taskId));
-    await tx.insert(taskMessages).values({
-      id: messageId,
-      taskId,
-      userId: identity.userId,
-      content: input.content,
-      selectedSkills,
-      requestedModel,
-      requestedReasoningEffort,
-      idempotencyKey: input.idempotencyKey,
-    });
-    const idle = [
-      "completed",
-      "failed",
-      "cancelled",
-      "paused",
-      "pr_open",
-      "awaiting_user",
-    ].includes(task.status);
-    if (idle)
-      assertTaskTransition({
-        from: TaskStatusSchema.parse(task.status),
-        to: "queued",
-        actor: "user",
-        reason: "User sent a follow-up in the existing session",
-        at: new Date().toISOString(),
-        idempotencyKey: input.idempotencyKey,
-        correlationId: input.idempotencyKey,
-      });
-    if (idle)
+      if (!selectedSkills)
+        return {
+          status: 400,
+          error: "One or more selected skills are unavailable",
+        };
       await tx
         .update(tasks)
         .set({
-          status: "queued",
-          completedAt: null,
-          failureCode: null,
-          version: sql`${tasks.version} + 1`,
-          updatedAt: new Date().toISOString(),
+          selectedSkillIds: ids,
+          requestedModel,
+          requestedReasoningEffort,
         })
         .where(eq(tasks.id, taskId));
-    const events = await tx
-      .select({ sequence: taskEvents.sequence })
-      .from(taskEvents)
-      .where(eq(taskEvents.taskId, taskId))
-      .orderBy(asc(taskEvents.sequence));
-    const correlationId = randomUUID();
-    await tx.insert(outbox).values({
-      id: `out_${randomUUID()}`,
-      aggregateType: "task",
-      aggregateId: taskId,
-      eventType: "task.followup",
-      payload: { taskId, messageId, correlationId },
+      await tx.insert(taskMessages).values({
+        id: messageId,
+        taskId,
+        userId: identity.userId,
+        content: input.content,
+        attachmentIds: input.attachmentIds ?? [],
+        selectedSkills,
+        requestedModel,
+        requestedReasoningEffort,
+        idempotencyKey: input.idempotencyKey,
+      });
+      await bindAttachments(
+        tx,
+        input.attachmentIds ?? [],
+        identity.organizationId,
+        identity.userId,
+        taskId,
+        messageId,
+      );
+      const idle = [
+        "completed",
+        "failed",
+        "cancelled",
+        "paused",
+        "pr_open",
+        "awaiting_user",
+      ].includes(task.status);
+      if (idle)
+        assertTaskTransition({
+          from: TaskStatusSchema.parse(task.status),
+          to: "queued",
+          actor: "user",
+          reason: "User sent a follow-up in the existing session",
+          at: new Date().toISOString(),
+          idempotencyKey: input.idempotencyKey,
+          correlationId: input.idempotencyKey,
+        });
+      if (idle)
+        await tx
+          .update(tasks)
+          .set({
+            status: "queued",
+            completedAt: null,
+            failureCode: null,
+            version: sql`${tasks.version} + 1`,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(tasks.id, taskId));
+      const events = await tx
+        .select({ sequence: taskEvents.sequence })
+        .from(taskEvents)
+        .where(eq(taskEvents.taskId, taskId))
+        .orderBy(asc(taskEvents.sequence));
+      const correlationId = randomUUID();
+      await tx.insert(outbox).values({
+        id: `out_${randomUUID()}`,
+        aggregateType: "task",
+        aggregateId: taskId,
+        eventType: "task.followup",
+        payload: { taskId, messageId, correlationId },
+      });
+      await tx.insert(taskEvents).values({
+        id: `evt_${randomUUID()}`,
+        taskId,
+        sequence: (events.at(-1)?.sequence ?? 0) + 1,
+        category: "conversation",
+        phase: idle ? "queued" : task.status,
+        status: "succeeded",
+        title: "Follow-up received",
+        evidence: [`message:${messageId}`],
+        whatWasDone: input.content,
+        whyItWasDone: idle
+          ? "The session will resume its existing workspace and Codex thread."
+          : "This message is queued for the next turn without interrupting the current work.",
+        correlationId,
+      });
+      await tx.insert(auditLogs).values({
+        id: `aud_${randomUUID()}`,
+        organizationId: identity.organizationId,
+        actorType: "user",
+        actorId: identity.userId,
+        action: "task.followup",
+        targetType: "task",
+        targetId: taskId,
+        correlationId,
+        metadata: { messageId },
+      });
+      return { status: 202, messageId, duplicate: false };
+    })
+    .catch((error) => {
+      if (error instanceof AttachmentBindingError)
+        return { status: 400, error: error.message };
+      throw error;
     });
-    await tx.insert(taskEvents).values({
-      id: `evt_${randomUUID()}`,
-      taskId,
-      sequence: (events.at(-1)?.sequence ?? 0) + 1,
-      category: "conversation",
-      phase: idle ? "queued" : task.status,
-      status: "succeeded",
-      title: "Follow-up received",
-      whatWasDone: input.content,
-      whyItWasDone: idle
-        ? "The session will resume its existing workspace and Codex thread."
-        : "This message is queued for the next turn without interrupting the current work.",
-      correlationId,
-    });
-    await tx.insert(auditLogs).values({
-      id: `aud_${randomUUID()}`,
-      organizationId: identity.organizationId,
-      actorType: "user",
-      actorId: identity.userId,
-      action: "task.followup",
-      targetType: "task",
-      targetId: taskId,
-      correlationId,
-      metadata: { messageId },
-    });
-    return { status: 202, messageId, duplicate: false };
-  });
   return NextResponse.json(result, {
     status: result.status,
     headers: { "cache-control": "no-store" },

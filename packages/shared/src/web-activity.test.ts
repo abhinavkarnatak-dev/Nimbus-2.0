@@ -4,6 +4,28 @@ const payload = (action: unknown, extra = {}) => ({
   item: { type: "webSearch", id: "search-1", action, ...extra },
 });
 describe("confirmed web research activity", () => {
+  it("projects real URL reader progress and failures without claiming a read succeeded", () => {
+    const read = { id: "url-read", url: "https://claude.ai/artifact/public" };
+    expect(
+      webActivityEvent("nimbus/urlRead", { ...read, status: "running" }),
+    ).toMatchObject({ title: "Reading claude.ai", status: "running" });
+    expect(
+      webActivityEvent("nimbus/urlRead", {
+        ...read,
+        status: "failed",
+        message: "Embedded content unavailable",
+      }),
+    ).toMatchObject({
+      title: "Could not read claude.ai",
+      status: "failed",
+      whatWasDone: expect.stringContaining("Embedded content unavailable"),
+    });
+    expect(
+      isWebActivity(
+        webActivityEvent("nimbus/urlRead", { ...read, status: "succeeded" })!,
+      ),
+    ).toBe(true);
+  });
   it("reports LinkedIn search start and completion with stable identity and queries", () => {
     const input = payload({
       type: "search",

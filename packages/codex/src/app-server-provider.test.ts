@@ -99,17 +99,42 @@ vi.mock("node:child_process", () => ({
                     },
                   }) + "\n",
                 );
-                child.stdout.write(
-                  JSON.stringify({
-                    method: "turn/completed",
-                    params: {
-                      threadId: "thread-test",
-                      turn: { id: "turn-test", status: "completed" },
-                    },
-                  }) + "\n",
-                );
+                if (
+                  !(
+                    transport.toolCall &&
+                    ["nimbus_read_url", "nimbus_read_attachment"].includes(
+                      transport.toolName,
+                    )
+                  )
+                )
+                  child.stdout.write(
+                    JSON.stringify({
+                      method: "turn/completed",
+                      params: {
+                        threadId: "thread-test",
+                        turn: { id: "turn-test", status: "completed" },
+                      },
+                    }) + "\n",
+                  );
               });
           });
+        if (
+          String(request.id) === "tool-request" &&
+          ["nimbus_read_url", "nimbus_read_attachment"].includes(
+            transport.toolName,
+          )
+        )
+          queueMicrotask(() =>
+            child.stdout.write(
+              JSON.stringify({
+                method: "turn/completed",
+                params: {
+                  threadId: "thread-test",
+                  turn: { id: "turn-test", status: "completed" },
+                },
+              }) + "\n",
+            ),
+          );
         callback();
       },
     });
@@ -140,6 +165,195 @@ const create = () =>
   });
 
 describe("Codex execution contract", () => {
+  it("reads attachments through a scoped read-only callback without using publishing tools", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_read_attachment";
+    transport.toolArgs = {
+      id: "att_00000000000000000000000000000001",
+      offset: 12000,
+    };
+    const provider = create();
+    await provider.start();
+    const threadId = await provider.startChatThread("test-model");
+    const read = vi
+      .fn()
+      .mockResolvedValue({ success: true, content: "attachment text" });
+    const publish = vi.fn();
+    for await (const _event of provider.runTurn({
+      threadId,
+      prompt: "Read my file",
+      onAttachmentCall: read,
+    })) {
+      /* consume */
+    }
+    expect(read).toHaveBeenCalledExactlyOnceWith(transport.toolArgs);
+    expect(publish).not.toHaveBeenCalled();
+    expect(
+      transport.requests.find((request) => request.method === "thread/start")
+        ?.params,
+    ).toMatchObject({
+      sandbox: "read-only",
+      dynamicTools: expect.arrayContaining([
+        expect.objectContaining({ name: "nimbus_read_attachment" }),
+      ]),
+    });
+    expect(
+      transport.requests.find(
+        (request) => String(request.id) === "tool-request",
+      ),
+    ).toMatchObject({
+      result: {
+        success: true,
+        contentItems: [
+          {
+            type: "inputText",
+            text: expect.stringContaining("attachment text"),
+          },
+        ],
+      },
+    });
+    await provider.stop();
+  });
+  it("denies a foreign-thread attachment read", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_read_attachment";
+    transport.toolArgs = {};
+    transport.wrongThread = true;
+    const provider = create();
+    await provider.start();
+    const threadId = await provider.startChatThread("test-model");
+    const read = vi.fn();
+    for await (const _event of provider.runTurn({
+      threadId,
+      prompt: "Read files",
+      onAttachmentCall: read,
+    })) {
+      /* consume */
+    }
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      transport.requests.find(
+        (request) => String(request.id) === "tool-request",
+      ),
+    ).toMatchObject({ result: { success: false } });
+    await provider.stop();
+  });
+  it("reads URLs in isolated general chat and streams honest progress without granting PR or shell tools", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_read_url";
+    transport.toolArgs = { url: "https://example.com/article" };
+    const provider = create();
+    await provider.start();
+    const threadId = await provider.startChatThread("test-model");
+    const handler = vi
+      .fn()
+      .mockResolvedValue({ success: true, content: "Actual article content" });
+    const publisher = vi.fn();
+    const events = [];
+    for await (const event of provider.runTurn({
+      threadId,
+      prompt: "Read the article",
+      onUrlCall: handler,
+    }))
+      events.push(event);
+    expect(handler).toHaveBeenCalledExactlyOnceWith(transport.toolArgs);
+    expect(
+      events
+        .filter(
+          (event) =>
+            event.type === "activity" && event.method === "nimbus/urlRead",
+        )
+        .map(
+          (event) => (event as { payload: { status: string } }).payload.status,
+        ),
+    ).toEqual(["running", "succeeded"]);
+    expect(
+      transport.requests.find(
+        (request) => String(request.id) === "tool-request",
+      ),
+    ).toMatchObject({ result: { success: true } });
+    expect(
+      transport.requests.find((request) => request.method === "thread/start")
+        ?.params.dynamicTools,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "nimbus_read_url" }),
+      ]),
+    );
+    expect(
+      transport.requests.some(
+        (request) =>
+          request.method === "environment/add" ||
+          request.method === "command/exec",
+      ),
+    ).toBe(false);
+    expect(publisher).not.toHaveBeenCalled();
+    await provider.stop();
+  });
+  it("does not label an unavailable URL as a successful read or fail the chat turn", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_read_url";
+    transport.toolArgs = { url: "https://example.com" };
+    const provider = create();
+    await provider.start();
+    const threadId = await provider.startChatThread("test-model");
+    const events = [];
+    for await (const event of provider.runTurn({
+      threadId,
+      prompt: "Read URL",
+      onUrlCall: async () => ({
+        success: false,
+        code: "site_blocked",
+        message: "Site denied access",
+      }),
+    }))
+      events.push(event);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "activity",
+        method: "nimbus/urlRead",
+        payload: expect.objectContaining({
+          status: "failed",
+          message: "Site denied access",
+        }),
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: "turn_completed",
+      status: "completed",
+    });
+    expect(
+      transport.requests.find(
+        (request) => String(request.id) === "tool-request",
+      ),
+    ).toMatchObject({ result: { success: false } });
+    await provider.stop();
+  });
+  it("rejects foreign URL tool calls and never routes them through publishing", async () => {
+    transport.toolCall = true;
+    transport.toolName = "nimbus_read_url";
+    transport.wrongThread = true;
+    const provider = create();
+    await provider.start();
+    const handler = vi.fn();
+    const publisher = vi.fn();
+    for await (const _ of provider.runTurn({
+      threadId: "thread-test",
+      prompt: "Read URL",
+      onUrlCall: handler,
+      onToolCall: publisher,
+    })) {
+      /* consume */
+    }
+    expect(handler).not.toHaveBeenCalled();
+    expect(publisher).not.toHaveBeenCalled();
+    expect(
+      transport.requests.find(
+        (request) => String(request.id) === "tool-request",
+      ),
+    ).toMatchObject({ result: { success: false } });
+    await provider.stop();
+  });
   it("overrides the model between chat turns and sends a null effort for model-default reasoning", async () => {
     const provider = create();
     await provider.start();

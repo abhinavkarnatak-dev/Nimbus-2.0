@@ -3,9 +3,20 @@ import { chatLink, fileReferenceTarget } from "./chat-links";
 
 describe("untrusted Markdown links", () => {
   it("routes remote Linux references into the same task workbench", () => {
-    expect(chatLink("/workspace/repo/src/main.py:12", "task-a")).toEqual({ kind: "file", reference: "src/main.py:12" });
-    expect(chatLink("file:///workspace/repo/report.pdf", "task-a")).toEqual({ kind: "file", reference: "report.pdf" });
-    for (const value of ["/workspace/repo/../secret", "/workspace/repo/.git/config", "/workspace/repo/a:stream"]) expect(chatLink(value, "task-a")).toEqual({ kind: "blocked" });
+    expect(chatLink("/workspace/repo/src/main.py:12", "task-a")).toEqual({
+      kind: "file",
+      reference: "src/main.py:12",
+    });
+    expect(chatLink("file:///workspace/repo/report.pdf", "task-a")).toEqual({
+      kind: "file",
+      reference: "report.pdf",
+    });
+    for (const value of [
+      "/workspace/repo/../secret",
+      "/workspace/repo/.git/config",
+      "/workspace/repo/a:stream",
+    ])
+      expect(chatLink(value, "task-a")).toEqual({ kind: "blocked" });
   });
   it("routes PDF output references to Artifacts instead of source previews", () => {
     expect(fileReferenceTarget("reports/Overview.PDF:1").get("tab")).toBe(
@@ -57,5 +68,35 @@ describe("untrusted Markdown links", () => {
     expect(chatLink("https://example.com/docs?q=typescript", "task-a")).toEqual(
       { kind: "external", href: "https://example.com/docs?q=typescript" },
     );
+  });
+});
+
+import { chatTextParts } from "./chat-links";
+describe("plain chat links", () => {
+  it("makes mixed text and multiple URLs clickable without losing text", () => {
+    const text =
+      "See https://x.com/user/status/123 and https://example.com/docs?q=hello#part.";
+    const parts = chatTextParts(text);
+    expect(parts.map((p) => p.text).join("")).toBe(text);
+    expect(parts.filter((p) => p.href).map((p) => p.href)).toEqual([
+      "https://x.com/user/status/123",
+      "https://example.com/docs?q=hello#part",
+    ]);
+  });
+  it("preserves balanced URL parentheses and excludes surrounding punctuation", () => {
+    const text = "(https://example.com/wiki/Topic_(thing)).";
+    const parts = chatTextParts(text);
+    expect(parts.map((p) => p.text).join("")).toBe(text);
+    expect(parts.find((p) => p.href)?.text).toBe(
+      "https://example.com/wiki/Topic_(thing)",
+    );
+  });
+  it("never interprets markup, unsafe schemes or credentials as links", () => {
+    const text =
+      "<script>alert(1)</script> javascript:alert(1) https://user:secret@example.com https://";
+    expect(chatTextParts(text)).toEqual([{ text }]);
+  });
+  it("leaves plain text and newlines intact", () => {
+    expect(chatTextParts("hello\nworld")).toEqual([{ text: "hello\nworld" }]);
   });
 });

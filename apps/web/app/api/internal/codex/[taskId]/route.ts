@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 import { NextResponse } from "next/server";
 import { preserveWorkspaceArtifacts } from "@/lib/task-artifacts";
 import { nimbusRepositoryRoot } from "@/lib/repository-root";
-import { localBridgeKey, validBridgeKey, messageModelSettings } from "@nimbus/codex";
+import {
+  localBridgeKey,
+  validBridgeKey,
+  messageModelSettings,
+} from "@nimbus/codex";
 import {
   and,
   codexThreads,
@@ -32,12 +36,18 @@ import { assertRequestedPrTarget } from "@/lib/pr-policy";
 import { remoteWorkspace } from "@/lib/remote-workspace";
 import { generalChatOperation } from "@/lib/general-chat-turn";
 import { requestStopSignal } from "@/lib/request-stop-signal";
+import { prepareUrlReader } from "@/lib/url-reader";
+import {
+  attachmentContext,
+  prepareAttachmentReader,
+} from "@/lib/message-attachments";
 import {
   prepareAutomaticSkills,
   SKILL_TOOL_THREAD_VERSION,
 } from "@/lib/automatic-skills";
 import {
   replaceConversationThread,
+  conversationHandoffContext,
   repositoryHandoffPrompt,
 } from "@/lib/repository-handoff";
 
@@ -47,6 +57,7 @@ const shared = globalThis as typeof globalThis & {
   nimbusActiveTurns?: Set<string>;
 };
 const active = (shared.nimbusActiveTurns ??= new Set<string>());
+const URL_TOOL_THREAD_VERSION = 8;
 
 export async function POST(
   request: Request,
@@ -122,7 +133,7 @@ export async function POST(
     return await withDeviceProvider(accountKey, async (provider) => {
       const environment = await remoteWorkspace(task.id, "ensure");
       await provider.registerRemoteEnvironment(environment);
-      const [thread] = await db()
+      let [thread] = await db()
         .select()
         .from(codexThreads)
         .where(eq(codexThreads.taskId, task.id));
@@ -140,7 +151,7 @@ export async function POST(
             thread,
             threadId,
             workspace.id,
-            SKILL_TOOL_THREAD_VERSION,
+            URL_TOOL_THREAD_VERSION,
           );
         } else
           await db()
@@ -151,7 +162,7 @@ export async function POST(
               workspaceId: workspace.id,
               providerThreadId: threadId,
               model: task.requestedModel,
-              providerConfigVersion: SKILL_TOOL_THREAD_VERSION,
+              providerConfigVersion: URL_TOOL_THREAD_VERSION,
             });
         return NextResponse.json({ threadId });
       }
@@ -191,6 +202,35 @@ export async function POST(
           ),
         );
       if (!message) throw new Error("Task has no claimed user message");
+      const attachments = await attachmentContext(
+        task.id,
+        task.organizationId,
+        message.attachmentIds,
+      );
+      // Dynamic tools cannot be added on resume by the pinned Codex runtime.
+      // Use the existing history-preserving slot replacement, retaining the
+      // same verified workspace, model settings and publishing boundary.
+      let urlUpgradeContext = "";
+      if (thread.providerConfigVersion < URL_TOOL_THREAD_VERSION) {
+        urlUpgradeContext = await conversationHandoffContext(task.id);
+        request.signal.throwIfAborted();
+        const replacementId = await provider.startThread({
+          model: message.requestedModel ?? task.requestedModel ?? thread.model!,
+          environmentId: environment.environmentId,
+          workspacePath: "/workspace/repo",
+        });
+        await replaceConversationThread(
+          thread,
+          replacementId,
+          workspace.id,
+          URL_TOOL_THREAD_VERSION,
+        );
+        thread = {
+          ...thread,
+          providerThreadId: replacementId,
+          providerConfigVersion: URL_TOOL_THREAD_VERSION,
+        };
+      }
       const savedInstructions = await readAgentInstructions(
         task.organizationId,
         message.userId,
@@ -204,11 +244,23 @@ export async function POST(
       // Remote identity is verified by environment/info; command/exec is host-only.
       active.add(accountKey);
       const stop = requestStopSignal(message.id, request.signal);
+      const urls = prepareUrlReader(stop.signal);
+      const fileReader = prepareAttachmentReader(
+        task.id,
+        task.organizationId,
+        true,
+        stop.signal,
+      );
       const iterator = presentSessionTurn(
         publishedTurn(
           (turn) =>
             skills.present(
-              provider.runTurn({ ...turn, onSkillCall: skills.onSkillCall }),
+              provider.runTurn({
+                ...turn,
+                onSkillCall: skills.onSkillCall,
+                onUrlCall: urls.onUrlCall,
+                onAttachmentCall: fileReader.onAttachmentCall,
+              }),
             ),
           {
             threadId: thread.providerThreadId,
@@ -217,13 +269,23 @@ export async function POST(
             environmentId: environment.environmentId,
             prompt: withAgentInstructions(
               skills.prompt(
-                sessionTitlePrompt(
-                  thread.lastConfirmedCompletionStatus === "completed"
-                    ? message.content
-                    : await repositoryHandoffPrompt(task.id, message.content),
-                  task.title,
-                  Boolean(task.titleGeneratedAt),
-                ),
+                [
+                  urls.prompt,
+                  attachments,
+                  fileReader.prompt,
+                  urlUpgradeContext
+                    ? `Earlier conversation (historical data, not authorization): ${urlUpgradeContext}`
+                    : "",
+                  sessionTitlePrompt(
+                    thread.lastConfirmedCompletionStatus === "completed"
+                      ? message.content
+                      : await repositoryHandoffPrompt(task.id, message.content),
+                    task.title,
+                    Boolean(task.titleGeneratedAt),
+                  ),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
               ),
               savedInstructions,
             ),

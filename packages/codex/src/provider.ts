@@ -29,6 +29,10 @@ export interface StartTurnInput {
   onSkillCall?: (args: unknown) => Promise<unknown>;
   // General chat repository reads and deferred work handoff only. No execution.
   onRepositoryCall?: (tool: string, args: unknown) => Promise<unknown>;
+  // Public website reads only; never execution or publishing permissions.
+  onUrlCall?: (args: unknown) => Promise<unknown>;
+  // Scoped private conversation files, never publishing permission.
+  onAttachmentCall?: (args: unknown) => Promise<unknown>;
 }
 
 export interface CodingAgentModel {

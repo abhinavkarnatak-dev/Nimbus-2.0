@@ -1,0 +1,30 @@
+.link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 7px;
+  margin: 1px 0;
+  border-radius: 6px;
+  background: #e5defb;
+  color: #5835ba;
+  text-decoration: none;
+  vertical-align: bottom;
+}
+.link span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.link img,
+.link svg {
+  flex-shrink: 0;
+  align-self: center;
+}
+.link:hover {
+  background: #d8ccf8;
+  text-decoration: underline;
+}
+.link:focus-visible {
+  outline: 2px solid #8064e9;
+  outline-offset: 2px;
+}

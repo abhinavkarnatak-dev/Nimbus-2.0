@@ -17,7 +17,7 @@ import {
 import { accessibleRepository } from "./repository-browser";
 import { requestsRepositoryExecution } from "./repository-intent";
 
-export const REPOSITORY_CHAT_VERSION = 6;
+export const REPOSITORY_CHAT_VERSION = 8;
 export function serializeConversationContext(
   rows: Array<{ category: string; text: string }>,
 ) {

@@ -36,11 +36,25 @@ export function chatLink(value: string, taskId: string): ChatLink {
       return { kind: "blocked" };
     return { kind: "file", reference };
   }
-  const remote = decoded.replace(/^file:\/\//, "").match(/^\/workspace\/repo\/(.+)$/);
+  const remote = decoded
+    .replace(/^file:\/\//, "")
+    .match(/^\/workspace\/repo\/(.+)$/);
   if (remote) {
     const reference = remote[1]!.replace(/#L(\d+)$/, ":$1");
     const path = reference.replace(/:\d+$/, "");
-    if (/[\\:%?#]/.test(path) || path.split("/").some(part => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) return { kind: "blocked" };
+    if (
+      /[\\:%?#]/.test(path) ||
+      path
+        .split("/")
+        .some(
+          (part) =>
+            !part ||
+            part === "." ||
+            part === ".." ||
+            part.toLowerCase() === ".git",
+        )
+    )
+      return { kind: "blocked" };
     return { kind: "file", reference };
   }
   const reference = decoded.replace(/#L(\d+)$/, ":$1");
@@ -71,4 +85,34 @@ export function chatLink(value: string, taskId: string): ChatLink {
   } catch {
     return { kind: "blocked" };
   }
+}
+
+export type ChatTextPart = { text: string; href?: string; origin?: string };
+
+// Linkify plain user text, not Markdown/HTML, so pasted content remains literal.
+export function chatTextParts(text: string): ChatTextPart[] {
+  const parts: ChatTextPart[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+    let candidate = match[0].replace(/[.,;:!?]+$/, "");
+    while (
+      candidate.endsWith(")") &&
+      (candidate.match(/\)/g)?.length ?? 0) >
+        (candidate.match(/\(/g)?.length ?? 0)
+    )
+      candidate = candidate.slice(0, -1);
+    candidate = candidate.replace(/[\]}]+$/, "");
+    try {
+      const url = new URL(candidate);
+      if (!url.hostname || url.username || url.password) continue;
+      const index = match.index!;
+      if (index > cursor) parts.push({ text: text.slice(cursor, index) });
+      parts.push({ text: candidate, href: url.href, origin: url.origin });
+      cursor = index + candidate.length;
+    } catch {
+      /* Invalid URLs stay ordinary text. */
+    }
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor) });
+  return parts;
 }
