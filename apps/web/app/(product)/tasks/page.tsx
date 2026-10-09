@@ -6,6 +6,8 @@ import { SessionStatusChip, SessionStatusProvider } from "../session-status";
 import { EditTaskTitle } from "./edit-task-title";
 import styles from "./edit-task-title.module.css";
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { PageSkeleton } from "../page-skeleton";
 
 export const metadata: Metadata = {
   title: "Task history",
@@ -13,7 +15,15 @@ export const metadata: Metadata = {
     "Review durable Nimbus task sessions, statuses, repositories, and outcomes.",
 };
 
-export default async function TasksPage() {
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="history" />}>
+      <TasksContent />
+    </Suspense>
+  );
+}
+
+async function TasksContent() {
   const identity = await requireIdentity();
   const rows = await listTasks(identity.organizationId);
   return (

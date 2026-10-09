@@ -14,6 +14,8 @@ import { TaskLaunchButton, TaskLaunchForm } from "./task-launch-form";
 import { SkillPrompt } from "./skill-prompt";
 import { RunStateIcon } from "./run-state-icon";
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { PageSkeleton } from "./page-skeleton";
 
 export const metadata: Metadata = {
   title: "Cloud coding workspace",
@@ -21,7 +23,15 @@ export const metadata: Metadata = {
     "Launch verified coding tasks in Nimbus, powered by your connected Codex account.",
 };
 
-export default async function DashboardPage() {
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<PageSkeleton variant="dashboard" />}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+async function DashboardContent() {
   const publicIdentity = await currentIdentity();
   if (!publicIdentity) return <LandingPage />;
   const identity = publicIdentity ?? (await requireIdentity());
