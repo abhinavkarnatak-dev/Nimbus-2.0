@@ -60,7 +60,7 @@ const config: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value: `default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com; connect-src 'self' https://*.posthog.com${attachmentOrigin ? ` ${attachmentOrigin}` : ""}; worker-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://github.com https://accounts.google.com`,
+            value: `default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com; connect-src 'self' https://*.posthog.com${attachmentOrigin ? ` ${attachmentOrigin}` : ""}; worker-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://github.com https://accounts.google.com`,
           },
         ],
       },

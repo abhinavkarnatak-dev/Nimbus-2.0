@@ -13,6 +13,46 @@ type Transaction = Parameters<
   Parameters<ReturnType<typeof db>["transaction"]>[0]
 >[0];
 export class AttachmentBindingError extends Error {}
+function supportsVision(name: string) {
+  return /\.(?:png|jpe?g|webp|gif)$/i.test(name);
+}
+
+// Native image inputs let the model see pixels without buffering files on Render
+// or spinning up a sandbox. Only immutable files bound to this task/org qualify.
+export async function attachmentImageInputs(
+  taskId: string,
+  organizationId: string,
+  ids: string[] = [],
+) {
+  if (!ids.length) return [];
+  attachmentIdsSchema.parse(ids);
+  const rows = await db()
+    .select()
+    .from(messageAttachments)
+    .where(
+      and(
+        eq(messageAttachments.taskId, taskId),
+        eq(messageAttachments.organizationId, organizationId),
+        eq(messageAttachments.status, "bound"),
+        inArray(messageAttachments.id, ids),
+      ),
+    );
+  if (rows.length !== ids.length)
+    throw new Error("A message attachment is unavailable. Retry this message.");
+  const images = ids
+    .map((id) => rows.find((row) => row.id === id)!)
+    .filter((file) => supportsVision(file.name));
+  if (!images.length) return [];
+  const { attachmentStorage } = await import("./attachment-storage.js");
+  const storage = attachmentStorage();
+  try {
+    return await Promise.all(
+      images.map((file) => storage.download(file.objectKey, file.name, true)),
+    );
+  } finally {
+    storage.close();
+  }
+}
 export async function bindAttachments(
   tx: Transaction,
   ids: string[],
@@ -81,7 +121,9 @@ export async function attachmentContext(
         id,
         name: file.name,
         bytes: file.size,
-        warning: file.extractionWarning,
+        warning: supportsVision(file.name)
+          ? "Image supplied as native visual input in this turn; text extraction is not applicable. Inspect the image pixels, not just this metadata."
+          : file.extractionWarning,
         text: text.slice(0, 4_000),
         truncated: text.length > 4_000,
       });

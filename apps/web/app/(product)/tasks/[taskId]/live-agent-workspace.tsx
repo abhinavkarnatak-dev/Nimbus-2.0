@@ -509,12 +509,12 @@ export function LiveAgentWorkspace({
             tabIndex={-1}
           >
             <div>
-              <ChatText text={objective} />
               <AttachmentLinks
                 files={attachedFiles.filter(
                   (file) => file.messageId === initialAttachmentMessageId,
                 )}
               />
+              <ChatText text={objective} />
               <header>
                 <LocalTime value={createdAt} />
               </header>
@@ -751,6 +751,7 @@ function LiveConversationEvent({
         </span>
       )}
       <div>
+        {user && <AttachmentLinks files={attachments} />}
         {user ? (
           <ChatText className={styles.response} text={event.whatWasDone} />
         ) : (
@@ -760,7 +761,6 @@ function LiveConversationEvent({
             onOpenFile={onOpenFile}
           />
         )}
-        {user && <AttachmentLinks files={attachments} />}
         {!user && event.whyItWasDone && (
           <p className="decision-note">
             <span>Why</span>

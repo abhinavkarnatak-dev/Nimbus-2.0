@@ -146,6 +146,38 @@ async function setup(page: Page, followup = false) {
   await expect(page.getByLabel("Attach files", { exact: true })).toBeAttached();
   return text;
 }
+test("images preview inside both composers before sending", async ({
+  page,
+}) => {
+  for (const followup of [false, true]) {
+    await setup(page, followup);
+    await page.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "thumbnail.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0KsAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+    const thumbnail = page.getByRole("img", {
+      name: "Preview of thumbnail.png",
+      exact: true,
+    });
+    await expect(thumbnail).toBeVisible();
+    await expect
+      .poll(() =>
+        thumbnail.evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    await expect(page.locator('input[name="attachmentIds"]')).toHaveValue(
+      /att_/,
+      { timeout: 60000 },
+    );
+    await page.getByRole("button", { name: "Remove thumbnail.png" }).click();
+    await expect(thumbnail).toHaveCount(0);
+  }
+});
+
 test("long skill descriptions stay compact in the catalog and slash picker", async ({
   page,
 }, testInfo) => {
@@ -162,11 +194,9 @@ test("long skill descriptions stay compact in the catalog and slash picker", asy
   await fixtureSql`INSERT INTO skills(id,organization_id,owner_user_id,slug,name,description,summary) VALUES(${id},'org_local_01J000000000000000000001','usr_local_01J000000000000000000001','compact-greploop','greploop',${description},'Review pull requests')`;
   try {
     await page.goto("/skills");
-    const row = page
-      .getByRole("row")
-      .filter({
-        has: page.getByRole("button", { name: "Edit greploop", exact: true }),
-      });
+    const row = page.getByRole("row").filter({
+      has: page.getByRole("button", { name: "Edit greploop", exact: true }),
+    });
     await expect(row.locator("strong")).toHaveCSS("white-space", "nowrap");
     const summary = row.locator("td").nth(1).locator("span");
     await expect(summary).toHaveAttribute("title", description);
@@ -434,6 +464,9 @@ test("chat renders image previews, download cards and highlighted clickable URLs
     await expect(link).toHaveCSS("background-color", "rgb(229, 222, 251)");
     const image = page.getByRole("img", { name: "photo.png", exact: true });
     await expect(image).toBeVisible();
+    expect((await image.boundingBox())!.y).toBeLessThan(
+      (await link.boundingBox())!.y,
+    );
     await expect
       .poll(() =>
         image.evaluate((element: HTMLImageElement) => element.naturalWidth),

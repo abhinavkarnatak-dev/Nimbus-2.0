@@ -73,6 +73,26 @@ vi.mock("node:child_process", () => ({
             );
             if (request.method === "turn/start")
               setImmediate(() => {
+                if (
+                  request.params.input?.some(
+                    (entry: { type: string }) => entry.type === "image",
+                  )
+                ) {
+                  child.stdout.write(
+                    JSON.stringify({
+                      method: "item/started",
+                      params: {
+                        threadId: "thread-test",
+                        turnId: "turn-test",
+                        item: {
+                          id: "user-image",
+                          type: "userMessage",
+                          content: request.params.input,
+                        },
+                      },
+                    }) + "\n",
+                  );
+                }
                 if (transport.toolCall)
                   child.stdout.write(
                     JSON.stringify({
@@ -352,6 +372,36 @@ describe("Codex execution contract", () => {
         (request) => String(request.id) === "tool-request",
       ),
     ).toMatchObject({ result: { success: false } });
+    await provider.stop();
+  });
+  it("passes images as native visual inputs without granting chat execution tools", async () => {
+    const provider = create();
+    await provider.start();
+    const threadId = await provider.startChatThread("test-model");
+    const events = [];
+    for await (const event of provider.runTurn({
+      threadId,
+      prompt: "What is in this image?",
+      imageUrls: ["https://private.example/image"],
+    })) {
+      events.push(event);
+    }
+    expect(JSON.stringify(events)).not.toContain(
+      "https://private.example/image",
+    );
+    expect(JSON.stringify(events)).toContain("[private image attachment]");
+    expect(
+      transport.requests.find((request) => request.method === "turn/start")
+        ?.params,
+    ).toMatchObject({
+      input: [
+        { type: "text", text: "What is in this image?" },
+        { type: "image", url: "https://private.example/image" },
+      ],
+      environments: [],
+      sandboxPolicy: { type: "readOnly" },
+      approvalPolicy: "never",
+    });
     await provider.stop();
   });
   it("overrides the model between chat turns and sends a null effort for model-default reasoning", async () => {

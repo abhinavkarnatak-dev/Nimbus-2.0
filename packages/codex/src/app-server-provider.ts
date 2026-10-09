@@ -644,7 +644,10 @@ export class CodexAppServerProvider implements CodingAgentProvider {
     const result = asRecord(
       await this.#request("turn/start", {
         threadId: input.threadId,
-        input: [{ type: "text", text: input.prompt }],
+        input: [
+          { type: "text", text: input.prompt },
+          ...(input.imageUrls ?? []).map((url) => ({ type: "image", url })),
+        ],
         ...(input.model
           ? { model: input.model, effort: input.reasoningEffort ?? null }
           : {}),
@@ -987,7 +990,25 @@ export class CodexAppServerProvider implements CodingAgentProvider {
       });
       return;
     }
-    this.#pushEvent({ type: "activity", method, payload: params });
+    // User-message notifications can echo signed image URLs. Keep those bearer
+    // links out of Nimbus activity/audit persistence, while Codex receives them.
+    const item = asRecord(params.item);
+    const payload =
+      item.type === "userMessage" && Array.isArray(item.content)
+        ? {
+            ...params,
+            item: {
+              ...item,
+              content: item.content.map((entry: unknown) => {
+                const content = asRecord(entry);
+                return content.type === "image"
+                  ? { type: "image", url: "[private image attachment]" }
+                  : entry;
+              }),
+            },
+          }
+        : params;
+    this.#pushEvent({ type: "activity", method, payload });
   }
 
   #request(method: string, params: unknown): Promise<unknown> {

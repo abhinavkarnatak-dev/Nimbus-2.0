@@ -22,6 +22,8 @@ export interface StartTurnInput {
   workspacePath?: string;
   environmentId?: string;
   prompt: string;
+  // Private, short-lived URLs passed as native image inputs, never prompt text.
+  imageUrls?: string[];
   reasoningEffort?: string;
   signal?: AbortSignal;
   onToolCall?: (tool: string, args: unknown) => Promise<unknown>;

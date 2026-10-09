@@ -67,9 +67,12 @@ Text extraction is capped at 28,000 characters per file (120 KB sidecar), PDF pa
 at 60 pages and 30 seconds, expanded Office archives at 16 MB. The agent reads
 4,000-character previews plus bounded 12,000-character chunks as needed.
 Spreadsheet cells are text with cached values; formulas and macros never execute.
-Images, legacy binary DOC/XLS, encrypted documents, scanned PDFs and other unsupported
+PNG/JPEG/WebP/GIF attachments in the current message are sent to Codex as native
+image inputs using short-lived signed R2 URLs; Render does not buffer their bytes
+and general chat does not create a sandbox for vision. Model vision capability
+is required. Other image formats, legacy binary DOC/XLS, encrypted documents, scanned PDFs and other unsupported
 binary formats can be stored/downloaded but have explicit extraction warnings.
-OCR/vision is not included. Google Docs must be exported to a supported file first.
+Standalone OCR for scanned PDFs is not included. Google Docs must be exported to a supported file first.
 No file is publicly hosted, rendered as executable HTML, or treated as instructions.
 
 ## Validation

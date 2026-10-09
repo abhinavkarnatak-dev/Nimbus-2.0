@@ -20,6 +20,7 @@ vi.mock("./attachment-storage", () => ({
 }));
 import {
   attachmentContext,
+  attachmentImageInputs,
   prepareAttachmentReader,
 } from "./message-attachments";
 const id = "att_00000000000000000000000000000001";
@@ -45,6 +46,28 @@ beforeEach(() => {
   fixture.download.mockResolvedValue("https://private.example/signed");
 });
 describe("scoped attachment reader", () => {
+  it("provides native visual inputs only for bound supported images in the current message", async () => {
+    fixture.rows[0]!.name = "photo.JPG";
+    expect(await attachmentImageInputs("task", "org", [id])).toEqual([
+      "https://private.example/signed",
+    ]);
+    expect(fixture.download).toHaveBeenCalledWith(
+      "private/original",
+      "photo.JPG",
+      true,
+    );
+    expect(await attachmentContext("task", "org", [id])).toContain(
+      "native visual input",
+    );
+    fixture.rows[0]!.name = "drawing.svg";
+    fixture.download.mockClear();
+    expect(await attachmentImageInputs("task", "org", [id])).toEqual([]);
+    expect(fixture.download).not.toHaveBeenCalled();
+    fixture.rows = [];
+    await expect(attachmentImageInputs("task", "org", [id])).rejects.toThrow(
+      /unavailable/,
+    );
+  });
   it("leaves existing no-file messages entirely unchanged", async () => {
     expect(await attachmentContext("task", "org", [])).toBe("");
     expect(fixture.query).not.toHaveBeenCalled();

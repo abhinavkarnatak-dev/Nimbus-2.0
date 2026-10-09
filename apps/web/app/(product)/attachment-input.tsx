@@ -11,6 +11,7 @@ import styles from "./attachment-input.module.css";
 type Pending = AttachmentView & {
   status: "uploading" | "ready" | "failed";
   localId: string;
+  previewUrl?: string | undefined;
 };
 export function AttachmentInput({
   onChange,
@@ -29,6 +30,13 @@ export function AttachmentInput({
     mounted = useRef(true);
   const publish = useCallback(
     (next: Pending[]) => {
+      for (const file of current.current) {
+        if (
+          file.previewUrl &&
+          !next.some((row) => row.previewUrl === file.previewUrl)
+        )
+          URL.revokeObjectURL(file.previewUrl);
+      }
       current.current = next;
       if (!mounted.current) return;
       setFiles(next);
@@ -43,6 +51,8 @@ export function AttachmentInput({
     mounted.current = true;
     return () => {
       mounted.current = false;
+      for (const file of current.current)
+        if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
     };
   }, []);
   const shown = files;
@@ -67,6 +77,9 @@ export function AttachmentInput({
         size: file.size,
         localId: crypto.randomUUID(),
         status: "uploading" as const,
+        previewUrl: attachmentImageType(file.name)
+          ? URL.createObjectURL(file)
+          : undefined,
       }));
       publish([...current.current, ...pending]);
       for (let i = 0; i < incoming.length; i++) {
@@ -244,15 +257,20 @@ export function AttachmentInput({
           className={styles.chip}
           title={file.extractionWarning ?? file.name}
         >
+          {file.previewUrl && (
+            <PendingThumbnail url={file.previewUrl} name={file.name} />
+          )}
           {file.name}{" "}
           <small>
             {file.status === "uploading"
               ? "Uploading..."
               : file.status === "failed"
                 ? "Failed"
-                : file.extractionWarning
-                  ? "Partial text"
-                  : "Ready"}
+                : file.previewUrl
+                  ? "Image"
+                  : file.extractionWarning
+                    ? "Partial text"
+                    : "Ready"}
           </small>
           <button
             type="button"
@@ -279,6 +297,19 @@ export function AttachmentInput({
         </span>
       )}
     </div>
+  );
+}
+function PendingThumbnail({ url, name }: { url: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      className={styles.thumbnail}
+      src={url}
+      alt={`Preview of ${name}`}
+      onError={() => setFailed(true)}
+    />
   );
 }
 export function AttachmentLinks({ files }: { files: AttachmentView[] }) {

@@ -39,6 +39,7 @@ import { requestStopSignal } from "@/lib/request-stop-signal";
 import { prepareUrlReader } from "@/lib/url-reader";
 import {
   attachmentContext,
+  attachmentImageInputs,
   prepareAttachmentReader,
 } from "@/lib/message-attachments";
 import {
@@ -207,6 +208,11 @@ export async function POST(
         task.organizationId,
         message.attachmentIds,
       );
+      const imageUrls = await attachmentImageInputs(
+        task.id,
+        task.organizationId,
+        message.attachmentIds,
+      );
       // Dynamic tools cannot be added on resume by the pinned Codex runtime.
       // Use the existing history-preserving slot replacement, retaining the
       // same verified workspace, model settings and publishing boundary.
@@ -257,6 +263,7 @@ export async function POST(
             skills.present(
               provider.runTurn({
                 ...turn,
+                imageUrls,
                 onSkillCall: skills.onSkillCall,
                 onUrlCall: urls.onUrlCall,
                 onAttachmentCall: fileReader.onAttachmentCall,

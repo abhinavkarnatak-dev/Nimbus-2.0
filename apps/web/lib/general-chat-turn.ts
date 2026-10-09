@@ -22,6 +22,7 @@ import { requestStopSignal } from "./request-stop-signal";
 import { prepareUrlReader } from "./url-reader";
 import {
   attachmentContext,
+  attachmentImageInputs,
   prepareAttachmentReader,
 } from "./message-attachments";
 import {
@@ -165,6 +166,11 @@ export async function generalChatOperation(
     task.organizationId,
     message.attachmentIds,
   );
+  const imageUrls = await attachmentImageInputs(
+    task.id,
+    task.organizationId,
+    message.attachmentIds,
+  );
   const skills = await prepareAutomaticSkills(
     task.organizationId,
     message.userId,
@@ -192,6 +198,7 @@ export async function generalChatOperation(
       skills.present(
         provider.runTurn({
           threadId: thread.providerThreadId,
+          imageUrls,
           ...messageModelSettings(message, task),
           prompt: withAgentInstructions(
             skills.prompt(
