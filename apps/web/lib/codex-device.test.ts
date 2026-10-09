@@ -517,7 +517,8 @@ describe("durable Codex credentials", () => {
 
     expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
     expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
-  });  it("retries both revoked rows when reconnect persistence fails", async () => {
+  });
+  it("retries both revoked rows when reconnect persistence fails", async () => {
     vi.useFakeTimers();
     await deviceConnection("unit-test-user", true);
     fixture.saved = true;
