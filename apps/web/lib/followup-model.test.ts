@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({
   rows: [] as unknown[][],
@@ -88,6 +88,10 @@ function send(model?: string, reasoningEffort?: string | null) {
   );
 }
 beforeEach(() => {
+  // Model selection is provider-independent, and the route refuses a
+  // non-simulation model while the simulation provider is configured, so the
+  // ambient provider is pinned here instead of inherited.
+  vi.stubEnv("NIMBUS_CODING_PROVIDER", "codex");
   fixture.rows = [[{ ...task }], [], [], [], []];
   fixture.writes = [];
   fixture.role = "owner";
@@ -115,6 +119,9 @@ beforeEach(() => {
     },
     { id: "no-effort", label: "Default", isDefault: false },
   ]);
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 describe("follow-up model selection", () => {
   it("persists an explicit thinking effort for the same model", async () => {
