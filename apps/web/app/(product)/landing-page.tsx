@@ -5,7 +5,6 @@ import {
   Activity,
   ArrowUpRight,
   Check,
-  CircleDot,
   ShieldCheck,
   Sparkles,
   Terminal,
@@ -14,7 +13,6 @@ import {
 import {
   useEffect,
   useRef,
-  useState,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -23,10 +21,9 @@ import styles from "./landing-page.module.css";
 import { HeroTaskDemo } from "./hero-task-demo";
 
 export function LandingPage() {
-  const [motionReady, setMotionReady] = useState(false);
   const pageRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    setMotionReady(true);
+    pageRef.current?.classList.add(styles.motionReady!);
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -83,11 +80,7 @@ export function LandingPage() {
   };
 
   return (
-    <main
-      ref={pageRef}
-      onPointerMove={moveSpotlight}
-      className={`${styles.page} ${motionReady ? styles.motionReady : ""}`}
-    >
+    <main ref={pageRef} onPointerMove={moveSpotlight} className={styles.page}>
       <div className={styles.noise} aria-hidden="true" />
       <div className={styles.pointerGlow} aria-hidden="true" />
       <div className={styles.scrollProgress} aria-hidden="true" />

@@ -131,8 +131,7 @@ async function suspend(key: string, connection: Connection) {
   await connection.provider.stop(); // No logout: auth.json and thread files remain intact.
   // The process is idle here, so this is the cheapest safe moment to persist
   // the rotated credential and the thread files the container would otherwise lose.
-  await persistAuthCredential(key, connection);
-  await persistHomeSnapshot(key, connection);
+  await persistConnectionState(key, connection);
   return true;
 }
 
@@ -222,8 +221,7 @@ export async function withDeviceProvider(
     // with a suspend, a disconnect, or the shutdown flush.
     void exclusive(key, async () => {
       if (connections.get(key) !== connection) return;
-      await persistAuthCredential(key, connection);
-      await persistHomeSnapshot(key, connection);
+      await persistConnectionState(key, connection);
     }).catch(() => {});
     scheduleIdle(key, connection);
   };
@@ -370,7 +368,7 @@ async function persistAuthCredential(
   );
   // Recorded only after the store accepted it, so a failed save is retried by
   // the next completed turn, suspend, or shutdown instead of being skipped.
-  if (outcome !== "failed") connection.storedDigest = digest;
+  if (outcome === "ok") connection.storedDigest = digest;
   return outcome;
 }
 
@@ -389,6 +387,18 @@ async function persistHomeSnapshot(
   }
 }
 
+// A confirmed reconnect must clear revocation for both stored kinds. Keep the
+// fresh-login fence set until both writes succeed, so a transient database
+// failure is retried after the next turn, suspend, poll, or shutdown.
+async function persistConnectionState(key: string, connection: Connection) {
+  const fresh = connection.freshLogin === true;
+  const options = fresh ? { clearRevocation: true } : {};
+  const auth = await persistAuthCredential(key, connection, options);
+  const home = await persistHomeSnapshot(key, connection, options);
+  if (fresh && auth === "ok" && home === "ok") connection.freshLogin = false;
+  return { auth, home };
+}
+
 // Last-resort flush for a redeploy. Every completed turn and every suspend
 // already persists, so this is deliberately best effort and bounded: it must
 // never hold process exit open.
@@ -402,8 +412,7 @@ function registerCredentialFlush() {
       exclusive(key, async () => {
         if (connections.get(key) !== connection) return;
         if (connection.status !== "connected") return;
-        await persistAuthCredential(key, connection);
-        await persistHomeSnapshot(key, connection);
+        await persistConnectionState(key, connection);
       }).catch(() => {}),
     );
     const deadline = new Promise((resolve) => {
@@ -585,23 +594,11 @@ async function readConnection(key: string, start: boolean, wake = false) {
       const established = connection.status !== "connected";
       connection.account = account;
       connection.status = "connected";
-      if (established) {
-        const fresh = connection.freshLogin === true;
-        const outcome = await persistAuthCredential(key, connection, {
-          // Only a completed sign-in may clear an earlier disconnect.
-          clearRevocation: fresh,
-        }).catch(() => "failed" as StoreOutcome);
-        if (outcome === "ok") {
-          // A new login also re-enables thread snapshots, which an earlier
-          // disconnect revoked along with the credential.
-          const home = fresh
-            ? await persistHomeSnapshot(key, connection, {
-                clearRevocation: true,
-              })
-            : "ok";
-          if (home !== "failed") connection.freshLogin = false;
-        }
-      }
+      if (established || connection.freshLogin)
+        await persistConnectionState(key, connection).catch(() => ({
+          auth: "failed" as StoreOutcome,
+          home: "failed" as StoreOutcome,
+        }));
       if (
         !connection.limits &&
         typeof connection.provider.readRateLimits === "function"

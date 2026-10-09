@@ -29,10 +29,14 @@ test("setup exposes a manual status retry and preserves completion errors", asyn
   const proceed = page.getByRole("button", { name: "Continue", exact: true });
   await expect(proceed).toBeEnabled();
   await proceed.click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("Could not finish setup");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "Could not finish setup",
+  );
   await expect(proceed).toBeEnabled();
   await page.getByRole("button", { name: "Check connections again" }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("Could not finish setup");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText(
+    "Could not finish setup",
+  );
   failCompletion = false;
   await proceed.click();
   await expect(page).toHaveURL(/:3000\/$/);

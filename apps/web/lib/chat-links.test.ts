@@ -3,9 +3,20 @@ import { chatLink, fileReferenceTarget } from "./chat-links";
 
 describe("untrusted Markdown links", () => {
   it("routes remote Linux references into the same task workbench", () => {
-    expect(chatLink("/workspace/repo/src/main.py:12", "task-a")).toEqual({ kind: "file", reference: "src/main.py:12" });
-    expect(chatLink("file:///workspace/repo/report.pdf", "task-a")).toEqual({ kind: "file", reference: "report.pdf" });
-    for (const value of ["/workspace/repo/../secret", "/workspace/repo/.git/config", "/workspace/repo/a:stream"]) expect(chatLink(value, "task-a")).toEqual({ kind: "blocked" });
+    expect(chatLink("/workspace/repo/src/main.py:12", "task-a")).toEqual({
+      kind: "file",
+      reference: "src/main.py:12",
+    });
+    expect(chatLink("file:///workspace/repo/report.pdf", "task-a")).toEqual({
+      kind: "file",
+      reference: "report.pdf",
+    });
+    for (const value of [
+      "/workspace/repo/../secret",
+      "/workspace/repo/.git/config",
+      "/workspace/repo/a:stream",
+    ])
+      expect(chatLink(value, "task-a")).toEqual({ kind: "blocked" });
   });
   it("routes PDF output references to Artifacts instead of source previews", () => {
     expect(fileReferenceTarget("reports/Overview.PDF:1").get("tab")).toBe(

@@ -87,34 +87,30 @@ try {
     );
     if (!selectedSkills) throw new Error("Skill snapshot unavailable");
     await db().transaction(async (tx) => {
-      await tx
-        .insert(tasks)
-        .values({
-          id: taskId,
-          organizationId: source.organizationId,
-          createdByUserId: source.createdByUserId,
-          repositoryId: repositoryMode ? source.repositoryId : null,
-          title: repositoryMode
-            ? "Repo skills verification"
-            : "General skills verification",
-          titleGeneratedAt: new Date().toISOString(),
-          objective: content,
-          requestedModel: source.requestedModel,
-          requestedReasoningEffort: source.requestedReasoningEffort,
-          selectedSkillIds: [skillId],
-          baseRef: repositoryMode ? source.baseRef : "",
-          status: "queued",
-        });
-      await tx
-        .insert(taskMessages)
-        .values({
-          id: messageId,
-          taskId,
-          userId: source.createdByUserId,
-          content,
-          selectedSkills,
-          idempotencyKey: randomUUID(),
-        });
+      await tx.insert(tasks).values({
+        id: taskId,
+        organizationId: source.organizationId,
+        createdByUserId: source.createdByUserId,
+        repositoryId: repositoryMode ? source.repositoryId : null,
+        title: repositoryMode
+          ? "Repo skills verification"
+          : "General skills verification",
+        titleGeneratedAt: new Date().toISOString(),
+        objective: content,
+        requestedModel: source.requestedModel,
+        requestedReasoningEffort: source.requestedReasoningEffort,
+        selectedSkillIds: [skillId],
+        baseRef: repositoryMode ? source.baseRef : "",
+        status: "queued",
+      });
+      await tx.insert(taskMessages).values({
+        id: messageId,
+        taskId,
+        userId: source.createdByUserId,
+        content,
+        selectedSkills,
+        idempotencyKey: randomUUID(),
+      });
     });
     console.log(JSON.stringify({ taskId, repositoryMode, phase: "created" }));
     await waitMessage(messageId);
@@ -141,16 +137,14 @@ try {
     );
     const followupId = `msg_${randomUUID().replaceAll("-", "")}`;
     await db().transaction(async (tx) => {
-      await tx
-        .insert(taskMessages)
-        .values({
-          id: followupId,
-          taskId,
-          userId: source.createdByUserId,
-          content: "Now what is 3+3? Do not use tools or modify anything.",
-          selectedSkills: updated!,
-          idempotencyKey: randomUUID(),
-        });
+      await tx.insert(taskMessages).values({
+        id: followupId,
+        taskId,
+        userId: source.createdByUserId,
+        content: "Now what is 3+3? Do not use tools or modify anything.",
+        selectedSkills: updated!,
+        idempotencyKey: randomUUID(),
+      });
       await tx
         .update(tasks)
         .set({

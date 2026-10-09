@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { currentIdentity } from "@/lib/auth";
-import {
-  deviceUsageProvider,
-  isLocalDeviceRequest,
-} from "@/lib/codex-device";
+import { deviceUsageProvider, isLocalDeviceRequest } from "@/lib/codex-device";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

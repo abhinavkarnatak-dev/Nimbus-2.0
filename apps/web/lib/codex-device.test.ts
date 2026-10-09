@@ -472,6 +472,27 @@ describe("durable Codex credentials", () => {
       "credential",
     );
   });
+  it("retries both revoked rows when reconnect persistence fails", async () => {
+    vi.useFakeTimers();
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+
+    fixture.authorized = false;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    store.failWrites = 2;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(false);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(false);
+  });
   it("re-enables thread snapshots after a disconnect and a new sign-in", async () => {
     vi.useFakeTimers();
     await deviceConnection("unit-test-user", true);

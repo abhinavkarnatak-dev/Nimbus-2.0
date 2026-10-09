@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { resolve, relative, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 
 import type {
@@ -135,9 +135,7 @@ export class LocalWorkspaceProvider implements WorkspaceProvider {
     const diff = relative(root, target);
     if (
       diff === "" ||
-      (!diff.startsWith(`..${sep}`) &&
-        diff !== ".." &&
-        !resolve(diff).startsWith(sep))
+      (!diff.startsWith(`..${sep}`) && diff !== ".." && !isAbsolute(diff))
     )
       return target;
     throw new Error("Workspace path escaped its assigned root");
