@@ -1,0 +1,33 @@
+name: Apply Nimbus verified patch
+on:
+  push:
+    branches:
+      - fix/codex-credential-persistence
+    paths:
+      - .nimbus-tmp/nimbus.patch.gz.b64
+      - .github/workflows/apply-nimbus-patch.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/codex-credential-persistence
+          fetch-depth: 0
+      - name: Apply verified local patch
+        shell: bash
+        run: |
+          base64 -d .nimbus-tmp/nimbus.patch.gz.b64 | gzip -d > /tmp/nimbus.patch
+          git apply --check /tmp/nimbus.patch
+          git apply /tmp/nimbus.patch
+          rm -rf .nimbus-tmp
+          rm .github/workflows/apply-nimbus-patch.yml
+          git config user.name "abhinavkarnatak-dev"
+          git config user.email "abhinavkarnatak2004@gmail.com"
+          git add -A
+          test "$(git diff --cached --name-only | wc -l)" -eq 14
+          test -z "$(git diff --cached --diff-filter=D --name-only)"
+          git commit -m "fix: resolve Greptile and CI blockers"
+          git push origin HEAD:fix/codex-credential-persistence
