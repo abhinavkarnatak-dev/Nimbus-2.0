@@ -64,6 +64,9 @@ const store = vi.hoisted(() => ({
   reads: 0,
   failRead: false,
   failWrites: 0,
+  // Holds a write open, so a test can place a disconnect next to an in-flight
+  // save.
+  hold: null as null | (() => Promise<void>),
 }));
 vi.mock("./codex-credential-store", () => ({
   readCredential: async (accountKey: string, kind: string) => {
@@ -83,6 +86,7 @@ vi.mock("./codex-credential-store", () => ({
       store.failWrites -= 1;
       return "failed";
     }
+    if (store.hold) await store.hold();
     const entry = store.blobs.get(`${kind}:${accountKey}`);
     if (entry?.revoked && !options?.clearRevocation) return "skipped";
     store.blobs.set(`${kind}:${accountKey}`, {
@@ -171,6 +175,7 @@ afterEach(async () => {
   fixture.active = false;
   store.failRead = false;
   store.failWrites = 0;
+  store.hold = null;
   for (const key of [
     "unit-test-user",
     "other-unit-test-user",
@@ -472,7 +477,47 @@ describe("durable Codex credentials", () => {
       "credential",
     );
   });
-  it("retries both revoked rows when reconnect persistence fails", async () => {
+  it("cannot revive a disconnected account from another identity's eviction", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NIMBUS_CODEX_MAX_CONNECTIONS", "2");
+    // A saved login, a disconnect, then a fresh login whose save fails: the
+    // retry for that login still carries clearRevocation.
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+    fixture.authorized = false;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    store.failWrites = 2;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+
+    // Hold that retry open inside the store write, then disconnect while the
+    // other identity waits for the freed process slot.
+    let entered = () => {};
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.hold = async () => {
+      entered();
+      await gate;
+    };
+    const other = deviceConnection("other-unit-test-user", true);
+    await started;
+    const disconnect = disconnectDevice("unit-test-user");
+    release();
+    await Promise.all([other, disconnect]);
+    store.hold = null;
+
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+  });  it("retries both revoked rows when reconnect persistence fails", async () => {
     vi.useFakeTimers();
     await deviceConnection("unit-test-user", true);
     fixture.saved = true;
