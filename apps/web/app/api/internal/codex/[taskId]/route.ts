@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 import { NextResponse } from "next/server";
 import { preserveWorkspaceArtifacts } from "@/lib/task-artifacts";
 import { nimbusRepositoryRoot } from "@/lib/repository-root";
-import { localBridgeKey, validBridgeKey, messageModelSettings } from "@nimbus/codex";
+import {
+  localBridgeKey,
+  validBridgeKey,
+  messageModelSettings,
+} from "@nimbus/codex";
 import {
   and,
   codexThreads,

@@ -34,13 +34,16 @@ NIMBUS_CODEX_MAX_CONNECTIONS=2
 NIMBUS_CODEX_MAX_PROCESSES=1
 NIMBUS_CODEX_IDLE_MS=45000
 NIMBUS_EXECUTOR_SECRET=<random 64-character lowercase hexadecimal secret>
+NIMBUS_CREDENTIAL_KEY=<random 64-character lowercase hexadecimal secret>
 DATABASE_POOL_SIZE=3
 E2B_API_KEY=<needed for repository tasks>
 ```
 
 Generate the internal secret locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and add it privately to Render. Never commit it or use a `NEXT_PUBLIC_` prefix. This secret is not an OpenAI API key. The supervisor automatically sets the web/executor loopback URLs and private executor port; Render's injected `PORT` controls the public web listener. Database pool size is per process, so the web and executor together may open twice the configured count.
 
-The example above is the temporary, no-disk test configuration. For durable deployment, set `NIMBUS_STORAGE_MODE=persistent` and attach the disk. The path itself does not make storage persistent. Saved account capacity is separate from running process capacity: two accounts can remain connected while only one CLI runs. An idle authenticated CLI is stopped without logging out, and is restarted when its owner runs a task. Pending device sign-ins and active task streams cannot be evicted; another user's sign-in may need to wait until that work finishes. UI polling does not restart idle CLIs. This does not guarantee the runtime fits in 512 MB; verify the container-memory logs under real task load.
+The example above is the temporary, no-disk test configuration. Connections are durable even without a disk: the credential is encrypted with `NIMBUS_CREDENTIAL_KEY` and stored in Postgres, and the container's credential file is rewritten from it on demand. A disk (`NIMBUS_STORAGE_MODE=persistent`) is still required for checkpoints, downloads, and artifacts, because those are not stored in the database. The path itself does not make storage persistent.
+
+Keep one instance even with the database-backed credential store. Two instances sharing one account can race token rotation and invalidate each other's copy. Saved account capacity is separate from running process capacity: two accounts can remain connected while only one CLI runs. An idle authenticated CLI is stopped without logging out, and is restarted when its owner runs a task. Pending device sign-ins and active task streams cannot be evicted; another user's sign-in may need to wait until that work finishes. UI polling does not restart idle CLIs. This does not guarantee the runtime fits in 512 MB; verify the container-memory logs under real task load.
 
 `runtime:build` installs a pinned Codex CLI into the ignored `.nimbus-tools` directory without touching Render's read-only global binaries. The startup supervisor checks the CLI, required settings, and credential-directory permissions before starting the service. It selects the installed native CLI when available, avoiding its extra Node launcher. The executor's workspace TypeScript is bundled at build time and runs with plain Node, without a runtime transpiler. Next's in-memory cache is capped at 5 MiB. Container memory is logged every 30 seconds on Linux without exposing credentials.
 
@@ -54,10 +57,12 @@ If using a VM instead of Render, mount persistent storage at the repository's `.
 
 - Each organization/user pair has a separate hashed credential directory with mode `0700`; the Codex-owned `auth.json` is restricted to `0600`.
 - These files contain bearer credentials. File permissions are not encryption. Render encrypts persistent disks at rest; operators on other hosts must secure/encrypt the volume and control backup access. Never publish, log, or copy these files into tickets.
-- Successful login is confirmed by account read, not by displaying a code. Models and account usage are queried from that same user's process.
+- Successful login is confirmed by account read, not by displaying a code. Models and account usage are queried from that same user's process. The database write happens on that confirmation and after every completed turn, because Codex rotates tokens in place.
+- Saved credentials are encrypted with AES-256-GCM under `NIMBUS_CREDENTIAL_KEY` and stored in Postgres, keyed by organization and user. They survive a restart, redeploy, or free-service spin-down, and the container file is only a cache that is rewritten on demand. The key must be identical across deploys: rotating it makes stored connections unreadable and users reconnect once. A missing or malformed key disables durable storage and logs an error instead of silently storing nothing.
+- A bounded snapshot of the credential directory is stored with the credential so a replaced container can still resume the user's existing Codex threads. It holds the credential file and the newest rollout files, up to 6 MB and 200 files, and restore never overwrites a file that already exists. Checkpoints, downloads, and artifacts remain container-local.
 - A process/server restart restores saved credentials lazily for the authenticated user. A pending, uncompleted code cannot survive a process restart; the user must request a new code.
-- Disconnect cancels pending login, calls Codex logout, stops the process, and removes only that user's credential file. It is refused while that user's process has an active turn.
-- Concurrent connect/poll/disconnect operations are serialized per identity. `NIMBUS_CODEX_MAX_CONNECTIONS` caps retained account connections (default 10); `NIMBUS_CODEX_MAX_PROCESSES` independently caps running CLIs (default 1). The idle timeout defaults to 45 seconds. Streaming task leases protect the process through setup, inference, cleanup, and cancellation.
+- Disconnect revokes the stored credential first, then cancels pending login, calls Codex logout, stops the process, and removes only that user's credential file. It refuses to report success when the revocation could not be recorded, because a restart would otherwise restore an account the user just disconnected. It is refused while that user's process has an active turn.
+- Concurrent connect/poll/disconnect operations are serialized per identity. `NIMBUS_CODEX_MAX_CONNECTIONS` caps retained account connections (default 10), and an idle suspended connection is evicted to admit a new identity instead of refusing it; `NIMBUS_CODEX_MAX_PROCESSES` independently caps running CLIs (default 1). The idle timeout defaults to 45 seconds. Streaming task leases protect the process through setup, inference, cleanup, and cancellation.
 - Existing task concurrency remains unchanged. This work does not introduce parallel workers.
 - In-flight task recovery after a full service termination is not guaranteed; do not redeploy during active tasks. Saved credentials do not make interrupted execution resumable automatically.
 - No real OpenAI account login is exercised by unit tests. A live deployment acceptance test is still required, and upstream permission/account checks can reject this flow.
@@ -68,6 +73,6 @@ If using a VM instead of Render, mount persistent storage at the repository's `.
 2. Authorize in the user's browser and confirm the modal closes, the account is connected, and real model choices appear.
 3. Run a general chat and check streamed output and account usage.
 4. With E2B configured, run a harmless task in a test repository and verify workspace isolation, diffs, and output. Do not test against valuable repositories first.
-5. Once all tasks are idle, restart the service. With a persistent disk, verify the connection restores without a new code. With temporary storage, expect to reconnect and do not rely on old local thread/checkpoint/artifact files remaining available.
+5. Once all tasks are idle, restart the service and verify the connection restores without a new code, with or without a persistent disk. With temporary storage, do not rely on checkpoint, download, or artifact files remaining available; the connection and its Codex threads are restored from Postgres.
 6. Disconnect, restart, and verify the connection stays disconnected.
 7. Sign in as another Nimbus user and verify they cannot see the first user's code/account/threads.

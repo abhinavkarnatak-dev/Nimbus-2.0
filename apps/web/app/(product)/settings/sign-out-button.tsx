@@ -59,7 +59,8 @@ export function SignOutButton({
             action={signOutAction}
             className={styles.footer}
             onSubmit={() => {
-              if (process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN) posthog.reset();
+              if (process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN)
+                posthog.reset();
             }}
           >
             <Dialog.Close asChild>

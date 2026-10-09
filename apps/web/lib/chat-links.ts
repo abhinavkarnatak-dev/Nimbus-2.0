@@ -36,11 +36,25 @@ export function chatLink(value: string, taskId: string): ChatLink {
       return { kind: "blocked" };
     return { kind: "file", reference };
   }
-  const remote = decoded.replace(/^file:\/\//, "").match(/^\/workspace\/repo\/(.+)$/);
+  const remote = decoded
+    .replace(/^file:\/\//, "")
+    .match(/^\/workspace\/repo\/(.+)$/);
   if (remote) {
     const reference = remote[1]!.replace(/#L(\d+)$/, ":$1");
     const path = reference.replace(/:\d+$/, "");
-    if (/[\\:%?#]/.test(path) || path.split("/").some(part => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) return { kind: "blocked" };
+    if (
+      /[\\:%?#]/.test(path) ||
+      path
+        .split("/")
+        .some(
+          (part) =>
+            !part ||
+            part === "." ||
+            part === ".." ||
+            part.toLowerCase() === ".git",
+        )
+    )
+      return { kind: "blocked" };
     return { kind: "file", reference };
   }
   const reference = decoded.replace(/#L(\d+)$/, ":$1");

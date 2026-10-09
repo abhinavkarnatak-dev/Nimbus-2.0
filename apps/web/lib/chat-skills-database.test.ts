@@ -163,7 +163,10 @@ describe.runIf(process.env.NIMBUS_TASK_DATABASE_TEST === "true")(
       expect(
         (await api.DELETE(request("DELETE", { id: skillId }))).status,
       ).toBe(200);
-      expect((await db().select().from(tasks).where(eq(tasks.id, taskId)))[0]?.selectedSkillIds).toEqual([]);
+      expect(
+        (await db().select().from(tasks).where(eq(tasks.id, taskId)))[0]
+          ?.selectedSkillIds,
+      ).toEqual([]);
       expect(
         await listChatSkills(identity.organizationId, identity.userId),
       ).toEqual([]);

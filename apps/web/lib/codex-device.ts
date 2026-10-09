@@ -1,5 +1,13 @@
-import { createHash } from "node:crypto";
-import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import {
   CodexAppServerProvider,
@@ -7,6 +15,14 @@ import {
   deviceRequestAllowed,
   type CodingAgentModel,
 } from "@nimbus/codex";
+import { credentialDigest } from "./codex-credential-crypto";
+import {
+  readCredential,
+  revokeCredential,
+  writeCredential,
+  type StoreOutcome,
+} from "./codex-credential-store";
+import { restoreCodexHome, snapshotCodexHome } from "./codex-home-snapshot";
 import { nimbusRepositoryRoot } from "./repository-root";
 
 interface Connection {
@@ -23,6 +39,10 @@ interface Connection {
   idleTimeout?: NodeJS.Timeout;
   lastUsedAt?: number;
   leases?: number;
+  // Set while a freshly authorized sign-in still needs its durable write, and
+  // used to skip redundant credential writes.
+  freshLogin?: boolean;
+  storedDigest?: string;
   limits?:
     | Awaited<ReturnType<CodexAppServerProvider["readRateLimits"]>>
     | undefined;
@@ -33,6 +53,7 @@ const registry = globalThis as typeof globalThis & {
   nimbusDeviceOperations?: Map<string, Promise<unknown>>;
   nimbusDeviceInitializations?: Set<string>;
   nimbusDeviceProcessQueue?: Promise<void>;
+  nimbusDeviceCredentialFlush?: boolean;
 };
 const connections = (registry.nimbusDeviceConnections ??= new Map());
 const operations = (registry.nimbusDeviceOperations ??= new Map());
@@ -54,6 +75,18 @@ async function exclusive<T>(
   } finally {
     if (operations.get(key) === next) operations.delete(key);
   }
+}
+
+// Take an identity's lock only when it is free. The check and the take are
+// synchronous neighbours, so this never queues behind a task that may itself be
+// waiting for the process slot, which is what makes it safe to call from inside
+// the process queue.
+async function exclusiveIfFree<T>(
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T | null> {
+  if (operations.has(key)) return null;
+  return await exclusive(key, operation);
 }
 
 export async function connectedDeviceProvider(key: string, wake = true) {
@@ -100,7 +133,7 @@ function busy(connection: Connection) {
   );
 }
 
-async function suspend(connection: Connection) {
+async function suspend(key: string, connection: Connection) {
   if (busy(connection)) return false;
   if (
     connection.status === "connected" &&
@@ -108,7 +141,25 @@ async function suspend(connection: Connection) {
   )
     return false;
   await connection.provider.stop(); // No logout: auth.json and thread files remain intact.
+  // The process is idle here, so this is the cheapest safe moment to persist
+  // the rotated credential and the thread files the container would otherwise lose.
+  await persistConnectionState(key, connection);
   return true;
+}
+
+// Freeing a process slot is the only write that happens on another identity's
+// behalf, so it takes that identity's lock and re-checks it under the lock. A
+// disconnect that lands in between would otherwise be undone: the retry for a
+// login that never saved passes clearRevocation, so a write arriving after the
+// revoke would make the disconnected credential live again. When the lock is
+// taken, this identity is skipped rather than waited on.
+async function suspendForSlot(key: string, connection: Connection) {
+  const suspended = await exclusiveIfFree(key, async () => {
+    if (connections.get(key) !== connection) return false;
+    if (busy(connection)) return false;
+    return await suspend(key, connection);
+  });
+  return suspended === true;
 }
 
 function scheduleIdle(key: string, connection: Connection) {
@@ -122,7 +173,7 @@ function scheduleIdle(key: string, connection: Connection) {
           scheduleIdle(key, connection);
           return;
         }
-        await suspend(connection);
+        await suspend(key, connection);
       }).catch(() => {});
     },
     Number.isFinite(timeout) && timeout >= 1000 ? timeout : 45000,
@@ -149,7 +200,7 @@ async function startProcess(key: string, connection: Connection) {
           busy(other)
         )
           continue;
-        if (await suspend(other)) running--;
+        if (await suspendForSlot(otherKey, other)) running--;
       }
       if (running >= cap)
         throw new DeviceConnectionError(
@@ -191,6 +242,14 @@ export async function withDeviceProvider(
     released = true;
     connection.leases = Math.max(0, (connection.leases ?? 1) - 1);
     connection.lastUsedAt = Date.now();
+    // A finished turn is when the newest credential and thread files exist and
+    // the container may still be replaced, so persist now instead of waiting
+    // for the idle suspend. The identity lock keeps this from interleaving
+    // with a suspend, a disconnect, or the shutdown flush.
+    void exclusive(key, async () => {
+      if (connections.get(key) !== connection) return;
+      await persistConnectionState(key, connection);
+    }).catch(() => {});
     scheduleIdle(key, connection);
   };
   try {
@@ -264,14 +323,176 @@ async function savedCredentials(home: string) {
   }
 }
 
+const AUTH_FILE = "auth.json";
+
+async function readAuthFile(home: string): Promise<Buffer | null> {
+  try {
+    const contents = await readFile(resolve(home, AUTH_FILE));
+    return Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
+  } catch {
+    return null;
+  }
+}
+
+// Staged inside the credential directory and renamed, so no reader ever sees a
+// partial file and the credential path can never become a link.
+async function writeAuthFile(home: string, contents: Buffer) {
+  const staging = resolve(
+    home,
+    "tmp",
+    `auth.json.${randomBytes(8).toString("hex")}`,
+  );
+  await mkdir(resolve(home, "tmp"), { recursive: true, mode: 0o700 });
+  await writeFile(staging, contents, { mode: 0o600 });
+  await rename(staging, resolve(home, AUTH_FILE));
+  await chmod(resolve(home, AUTH_FILE), 0o600);
+}
+
+// A free web service replaces the container on every restart, redeploy, and
+// spin-down, so the credential file is only a cache. Restore this identity's
+// saved login from the database before anything reads the credential home.
+// Runs inside the identity's lock, and never overwrites an existing file or an
+// in-progress sign-in.
+async function ensureCredentials(key: string, home: string) {
+  if (await savedCredentials(home)) return;
+  try {
+    const snapshot = await readCredential(key, "home");
+    if (snapshot) await restoreCodexHome(home, snapshot);
+    const credential = await readCredential(key, "auth");
+    if (credential) await writeAuthFile(home, Buffer.from(credential, "utf8"));
+  } catch {
+    // Best effort: an unrestored login is the same as no saved login.
+  }
+}
+
+// Codex rewrites this file in place, so a read can catch a partial write.
+// Storing one would replace a usable saved login with an unusable one.
+function completeCredential(contents: Buffer): boolean {
+  try {
+    JSON.parse(contents.toString("utf8"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function persistAuthCredential(
+  key: string,
+  connection: Connection,
+  options: { clearRevocation?: boolean } = {},
+): Promise<StoreOutcome> {
+  const contents = await readAuthFile(connection.home);
+  if (!contents) return "skipped";
+  if (!completeCredential(contents)) return "skipped";
+  const digest = credentialDigest(contents);
+  if (!options.clearRevocation && connection.storedDigest === digest)
+    return "skipped";
+  const outcome = await writeCredential(
+    key,
+    "auth",
+    contents.toString("utf8"),
+    options,
+  );
+  // Recorded only after the store accepted it, so a failed save is retried by
+  // the next completed turn, suspend, or shutdown instead of being skipped.
+  if (outcome === "ok") connection.storedDigest = digest;
+  return outcome;
+}
+
+async function persistHomeSnapshot(
+  key: string,
+  connection: Connection,
+  options: { clearRevocation?: boolean } = {},
+): Promise<StoreOutcome> {
+  try {
+    const snapshot = await snapshotCodexHome(connection.home);
+    if (!snapshot) return "skipped";
+    return await writeCredential(key, "home", snapshot, options);
+  } catch {
+    // Thread files are an optimization; never let them break a suspend.
+    return "failed";
+  }
+}
+
+// A confirmed reconnect must clear revocation for both stored kinds. Keep the
+// fresh-login fence set until both writes succeed, so a transient database
+// failure is retried after the next turn, suspend, poll, or shutdown.
+async function persistConnectionState(key: string, connection: Connection) {
+  const fresh = connection.freshLogin === true;
+  const options = fresh ? { clearRevocation: true } : {};
+  const auth = await persistAuthCredential(key, connection, options);
+  const home = await persistHomeSnapshot(key, connection, options);
+  if (fresh && auth === "ok" && home === "ok") connection.freshLogin = false;
+  return { auth, home };
+}
+
+// Last-resort flush for a redeploy. Every completed turn and every suspend
+// already persists, so this is deliberately best effort and bounded: it must
+// never hold process exit open.
+function registerCredentialFlush() {
+  if (registry.nimbusDeviceCredentialFlush) return;
+  registry.nimbusDeviceCredentialFlush = true;
+  const flush = () => {
+    const pending = [...connections.entries()].map(([key, connection]) =>
+      // Serialized with the identity's own lock, so a flush can never insert a
+      // live row after that identity's disconnect has already revoked it.
+      exclusive(key, async () => {
+        if (connections.get(key) !== connection) return;
+        if (connection.status !== "connected") return;
+        await persistConnectionState(key, connection);
+      }).catch(() => {}),
+    );
+    const deadline = new Promise((resolve) => {
+      const timer = setTimeout(resolve, 2_000);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+    void Promise.race([Promise.allSettled(pending), deadline]).catch(() => {});
+  };
+  process.on("SIGTERM", flush);
+  process.on("SIGINT", flush);
+}
+
+registerCredentialFlush();
+
+// A suspended connection keeps its saved credential file, so it costs one map
+// entry rather than a process. Evicting the least recently used one keeps the
+// retained-connection cap from locking a new identity out permanently.
+// Synchronous on purpose: createConnection must evict an idle connection and
+// reserve the freed slot in one uninterrupted step, or two concurrent
+// admissions can both pass the retained-connection cap.
+function evictIdleConnection(): boolean {
+  let candidate: { key: string; connection: Connection } | undefined;
+  for (const [key, connection] of connections) {
+    if (
+      connection.provider.isRunning ||
+      operations.has(key) ||
+      busy(connection)
+    )
+      continue;
+    if (
+      !candidate ||
+      (connection.lastUsedAt ?? 0) < (candidate.connection.lastUsedAt ?? 0)
+    )
+      candidate = { key, connection };
+  }
+  if (!candidate) return false;
+  if (candidate.connection.idleTimeout)
+    clearTimeout(candidate.connection.idleTimeout);
+  connections.delete(candidate.key);
+  return true;
+}
+
 async function createConnection(key: string, home: string) {
   const limit = Number(process.env.NIMBUS_CODEX_MAX_CONNECTIONS ?? "10");
   if (!Number.isSafeInteger(limit) || limit < 1)
     throw new Error("Invalid Codex connection limit");
-  if (new Set([...connections.keys(), ...initializing]).size >= limit)
-    throw new DeviceConnectionError(
-      "Codex connection capacity reached. Try again after another connection is closed.",
-    );
+  while (new Set([...connections.keys(), ...initializing]).size >= limit) {
+    if (!evictIdleConnection())
+      throw new DeviceConnectionError(
+        "Codex connection capacity reached. Try again after another connection is closed.",
+      );
+  }
+  // Reserved in the same synchronous step as the eviction above.
   initializing.add(key);
   try {
     await mkdir(home, { recursive: true, mode: 0o700 });
@@ -344,6 +565,11 @@ async function readConnection(key: string, start: boolean, wake = false) {
     connections.delete(key);
     connection = undefined;
   }
+  // Restore this identity's saved login from the database first: a replaced
+  // container has an empty credential home, and that must not force a
+  // reconnect. A pending sign-in is never clobbered.
+  if (!connection || connection.status !== "pending")
+    await ensureCredentials(key, home);
   // Restore only this identity's saved login; GET never creates a fresh device code.
   if (!connection && (start || (await savedCredentials(home))))
     connection = await createConnection(key, home);
@@ -392,8 +618,14 @@ async function readConnection(key: string, start: boolean, wake = false) {
       // Codex owns token refresh; a private file store survives process and server restarts.
       if (await savedCredentials(home))
         await chmod(resolve(home, "auth.json"), 0o600);
+      const established = connection.status !== "connected";
       connection.account = account;
       connection.status = "connected";
+      if (established || connection.freshLogin)
+        await persistConnectionState(key, connection).catch(() => ({
+          auth: "failed" as StoreOutcome,
+          home: "failed" as StoreOutcome,
+        }));
       if (
         !connection.limits &&
         typeof connection.provider.readRateLimits === "function"
@@ -426,6 +658,7 @@ async function readConnection(key: string, start: boolean, wake = false) {
     if (connection.timeout) clearTimeout(connection.timeout);
     connection.login = await connection.provider.startDeviceLogin();
     connection.status = "pending";
+    connection.freshLogin = true;
     connection.expiresAt = Date.now() + 10 * 60_000;
     const current = connection;
     connection.timeout = setTimeout(() => {
@@ -475,6 +708,14 @@ export function disconnectDevice(key: string) {
         "Stop your current task before disconnecting Codex.",
       );
     const home = connection?.home ?? deviceHome(key);
+    // The database is the source of truth, so revoke before removing local
+    // state. A revoke that was never recorded would let the next restart
+    // restore an account the user just disconnected.
+    const revoked = await revokeCredential(key);
+    if (revoked === "failed")
+      throw new DeviceConnectionError(
+        "Codex disconnect could not be recorded. Try again.",
+      );
     if (connection) {
       if (connection.idleTimeout) clearTimeout(connection.idleTimeout);
       if (connection.timeout) clearTimeout(connection.timeout);
@@ -487,8 +728,13 @@ export function disconnectDevice(key: string) {
       await connection.provider.stop();
       connections.delete(key);
     }
-    // Remove only this user's credential file, even if the process had already stopped.
-    await unlink(resolve(home, "auth.json")).catch(
+    // Remove only this user's credential file, even if the process had already
+    // stopped. Truncating first means a failed unlink cannot leave a usable
+    // credential behind.
+    await writeFile(resolve(home, AUTH_FILE), "{}", { mode: 0o600 }).catch(
+      () => {},
+    );
+    await unlink(resolve(home, AUTH_FILE)).catch(
       (error: NodeJS.ErrnoException) => {
         if (error.code !== "ENOENT") throw error;
       },

@@ -30,14 +30,16 @@ describe("GitHub App security primitives", () => {
       );
     const client = new GitHubAppClient(config, transport);
     await client.createInstallationToken(7, [42], "read");
-    expect(JSON.parse(String(transport.mock.calls[0][1]?.body))).toEqual({
+    expect(JSON.parse(String(transport.mock.calls[0]![1]?.body))).toEqual({
       repository_ids: [42],
       permissions: { contents: "read" },
     });
     await client.createInstallationToken(7, [42]);
-    expect(JSON.parse(String(transport.mock.calls[1][1]?.body))).toMatchObject({
-      permissions: { contents: "write", pull_requests: "write" },
-    });
+    expect(JSON.parse(String(transport.mock.calls[1]![1]?.body))).toMatchObject(
+      {
+        permissions: { contents: "write", pull_requests: "write" },
+      },
+    );
   });
   it("reads commit-pinned text and encodes branch and path segments", async () => {
     const revision = "a".repeat(40);
@@ -65,10 +67,10 @@ describe("GitHub App security primitives", () => {
         "src/a b.ts",
       ),
     ).toEqual({ content: "hello" });
-    expect(String(transport.mock.calls[0][0])).toContain(
+    expect(String(transport.mock.calls[0]![0])).toContain(
       "heads/feature%2Fdemo",
     );
-    expect(String(transport.mock.calls[1][0])).toContain(
+    expect(String(transport.mock.calls[1]![0])).toContain(
       `contents/src/a%20b.ts?ref=${revision}`,
     );
   });
@@ -117,7 +119,7 @@ describe("GitHub App security primitives", () => {
       "repo",
       42,
     );
-    expect(transport.mock.calls[0][1]).toMatchObject({
+    expect(transport.mock.calls[0]![1]).toMatchObject({
       redirect: "error",
       headers: { authorization: "Bearer scoped-installation-token" },
     });

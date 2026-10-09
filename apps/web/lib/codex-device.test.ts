@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 const fixture = vi.hoisted(() => ({
   authorized: false,
   start: vi.fn(),
@@ -9,18 +10,106 @@ const fixture = vi.hoisted(() => ({
   running: true,
   active: false,
   launches: vi.fn(),
+  contents: new Map<string, string>(),
 }));
+// A tiny in-memory credential directory: "saved" mirrors auth.json, and the
+// content map lets a test prove what was restored.
+const isAuth = (path: string) => path.endsWith("auth.json");
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
   chmod: vi.fn(),
-  lstat: async (path: string) => {
-    if (path.endsWith("auth.json") && !fixture.saved)
+  rename: async (from: string, to: string) => {
+    const value = fixture.contents.get(from);
+    if (value === undefined)
       throw Object.assign(new Error("absent"), { code: "ENOENT" });
-    return { isFile: () => true, isSymbolicLink: () => false };
+    fixture.contents.delete(from);
+    fixture.contents.set(to, value);
+    if (isAuth(to)) fixture.saved = true;
   },
-  unlink: async () => {
-    fixture.saved = false;
+  readFile: async (path: string) => {
+    const value = fixture.contents.get(path);
+    if (value !== undefined) return Buffer.from(value);
+    if (isAuth(path) && fixture.saved)
+      return Buffer.from('{"stub":"credential"}');
+    throw Object.assign(new Error("absent"), { code: "ENOENT" });
   },
+  writeFile: async (
+    path: string,
+    data: string,
+    options?: { flag?: string },
+  ) => {
+    if (options?.flag === "wx" && fixture.contents.has(path))
+      throw Object.assign(new Error("exists"), { code: "EEXIST" });
+    fixture.contents.set(path, String(data));
+    if (isAuth(path)) fixture.saved = true;
+  },
+  readdir: async () => [],
+  lstat: async (path: string) => {
+    if (isAuth(path) && !fixture.saved)
+      throw Object.assign(new Error("absent"), { code: "ENOENT" });
+    return {
+      isFile: () => true,
+      isSymbolicLink: () => false,
+      size: 16,
+      mtimeMs: 1,
+    };
+  },
+  unlink: async (path: string) => {
+    fixture.contents.delete(path);
+    if (isAuth(path)) fixture.saved = false;
+  },
+}));
+const store = vi.hoisted(() => ({
+  blobs: new Map<string, { blob: string; revoked: boolean }>(),
+  reads: 0,
+  failRead: false,
+  failWrites: 0,
+  // Holds a write open, so a test can place a disconnect next to an in-flight
+  // save.
+  hold: null as null | (() => Promise<void>),
+}));
+vi.mock("./codex-credential-store", () => ({
+  readCredential: async (accountKey: string, kind: string) => {
+    store.reads += 1;
+    if (store.failRead) throw new Error("store unavailable");
+    const entry = store.blobs.get(`${kind}:${accountKey}`);
+    if (!entry || entry.revoked) return null;
+    return entry.blob;
+  },
+  writeCredential: async (
+    accountKey: string,
+    kind: string,
+    plaintext: string,
+    options?: { clearRevocation?: boolean },
+  ) => {
+    if (store.failWrites > 0) {
+      store.failWrites -= 1;
+      return "failed";
+    }
+    if (store.hold) await store.hold();
+    const entry = store.blobs.get(`${kind}:${accountKey}`);
+    if (entry?.revoked && !options?.clearRevocation) return "skipped";
+    store.blobs.set(`${kind}:${accountKey}`, {
+      blob: plaintext,
+      revoked: false,
+    });
+    return "ok";
+  },
+  // Mirrors the real store: a revoke leaves a revoked row for every kind, so a
+  // write that arrives afterwards cannot create a live credential.
+  revokeCredential: async (accountKey: string) => {
+    for (const kind of ["auth", "home"])
+      store.blobs.set(`${kind}:${accountKey}`, { blob: "", revoked: true });
+    return "ok";
+  },
+}));
+const snapshot = vi.hoisted(() => ({
+  write: vi.fn(async () => '{"version":1,"files":{}}'),
+  restore: vi.fn(async () => 1),
+}));
+vi.mock("./codex-home-snapshot", () => ({
+  snapshotCodexHome: snapshot.write,
+  restoreCodexHome: snapshot.restore,
 }));
 vi.mock("@nimbus/codex", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@nimbus/codex")>()),
@@ -74,16 +163,35 @@ import {
   withDeviceProvider,
 } from "./codex-device";
 
+// Simulate the container being replaced: the filesystem is gone, Postgres is not.
+function replaceContainer() {
+  fixture.contents.clear();
+  fixture.saved = false;
+}
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   vi.useRealTimers();
   fixture.active = false;
-  await disconnectDevice("unit-test-user");
+  store.failRead = false;
+  store.failWrites = 0;
+  store.hold = null;
+  for (const key of [
+    "unit-test-user",
+    "other-unit-test-user",
+    "third-unit-test-user",
+  ])
+    await disconnectDevice(key).catch(() => {});
   fixture.authorized = false;
   fixture.saved = false;
   fixture.running = true;
+  fixture.contents.clear();
+  store.blobs.clear();
+  store.reads = 0;
   vi.clearAllMocks();
   fixture.launches.mockReset();
+  snapshot.write.mockClear();
+  snapshot.restore.mockClear();
   vi.unstubAllEnvs();
 });
 describe("local Codex device connection", () => {
@@ -279,5 +387,207 @@ describe("local Codex device connection", () => {
     ).toBe(false);
     vi.stubEnv("NODE_ENV", "production");
     expect(isLocalDeviceRequest(local)).toBe(false);
+  });
+});
+describe("durable Codex credentials", () => {
+  it("stores the credential once the account is confirmed", async () => {
+    await deviceConnection("unit-test-user", true);
+    expect(store.blobs.get("auth:unit-test-user")).toBeUndefined();
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.blob).toContain(
+      "credential",
+    );
+  });
+  it("restores a saved connection after the container filesystem is lost", async () => {
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")).toBeDefined();
+    replaceContainer();
+    expect(await deviceConnection("unit-test-user")).toMatchObject({
+      status: "connected",
+    });
+    expect(fixture.saved).toBe(true);
+    expect(fixture.start).toHaveBeenCalledOnce();
+  });
+  it("restores the credential home so an existing thread can resume", async () => {
+    vi.useFakeTimers();
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(snapshot.write).toHaveBeenCalled();
+    expect(store.blobs.get("home:unit-test-user")).toBeDefined();
+    replaceContainer();
+    snapshot.restore.mockClear();
+    await deviceConnection("unit-test-user");
+    expect(snapshot.restore).toHaveBeenCalled();
+  });
+  it("never restores over an in-progress sign-in", async () => {
+    await deviceConnection("unit-test-user", true);
+    store.blobs.set("auth:unit-test-user", { blob: "stored", revoked: false });
+    expect(await deviceConnection("unit-test-user")).toMatchObject({
+      status: "pending",
+    });
+    expect(fixture.saved).toBe(false);
+  });
+  it("revokes the stored credential on disconnect and never restores it", async () => {
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    replaceContainer();
+    expect(await deviceConnection("unit-test-user")).toEqual({
+      status: "disconnected",
+    });
+  });
+  it("keeps a working connection when the credential store is unavailable", async () => {
+    store.failRead = true;
+    fixture.saved = fixture.authorized = true;
+    expect(await deviceConnection("unit-test-user")).toMatchObject({
+      status: "connected",
+    });
+  });
+  it("evicts an idle connection instead of refusing a new identity", async () => {
+    vi.stubEnv("NIMBUS_CODEX_MAX_CONNECTIONS", "2");
+    vi.stubEnv("NIMBUS_CODEX_MAX_PROCESSES", "1");
+    fixture.saved = fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await deviceConnection("other-unit-test-user");
+    expect(await deviceConnection("third-unit-test-user")).toMatchObject({
+      status: "connected",
+    });
+  });
+  it("retries a credential save that failed instead of trusting the digest", async () => {
+    vi.useFakeTimers();
+    store.failWrites = 1;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("auth:unit-test-user")?.blob).toContain(
+      "credential",
+    );
+  });
+  it("cannot revive a disconnected account from another identity's eviction", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NIMBUS_CODEX_MAX_CONNECTIONS", "2");
+    // A saved login, a disconnect, then a fresh login whose save fails: the
+    // retry for that login still carries clearRevocation.
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+    fixture.authorized = false;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    store.failWrites = 2;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+
+    // Hold that retry open inside the store write, then disconnect while the
+    // other identity waits for the freed process slot.
+    let entered = () => {};
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.hold = async () => {
+      entered();
+      await gate;
+    };
+    const other = deviceConnection("other-unit-test-user", true);
+    await started;
+    const disconnect = disconnectDevice("unit-test-user");
+    release();
+    await Promise.all([other, disconnect]);
+    store.hold = null;
+
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+  });
+  it("retries both revoked rows when reconnect persistence fails", async () => {
+    vi.useFakeTimers();
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+
+    fixture.authorized = false;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    store.failWrites = 2;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(false);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(false);
+  });
+  it("re-enables thread snapshots after a disconnect and a new sign-in", async () => {
+    vi.useFakeTimers();
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(false);
+    await disconnectDevice("unit-test-user");
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+    // The disconnect removed the local credential, so the user signs in again.
+    fixture.authorized = false;
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(false);
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(store.blobs.get("home:unit-test-user")?.blob).toBeDefined();
+  });
+  it("does not let a late write restore a disconnected account", async () => {
+    await deviceConnection("unit-test-user", true);
+    fixture.saved = true;
+    fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    await disconnectDevice("unit-test-user");
+    expect(store.blobs.get("auth:unit-test-user")?.revoked).toBe(true);
+    expect(store.blobs.get("home:unit-test-user")?.revoked).toBe(true);
+    replaceContainer();
+    expect(await deviceConnection("unit-test-user")).toEqual({
+      status: "disconnected",
+    });
+  });
+  it("saves a completed turn without waiting for the idle suspend", async () => {
+    fixture.saved = fixture.authorized = true;
+    await deviceConnection("unit-test-user");
+    const response = await withDeviceProvider(
+      "unit-test-user",
+      async () =>
+        new Response(new ReadableStream(), {
+          headers: { "content-type": "application/x-ndjson" },
+        }),
+    );
+    snapshot.write.mockClear();
+    await response.body!.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(snapshot.write).toHaveBeenCalled();
+    expect(store.blobs.get("auth:unit-test-user")?.blob).toContain(
+      "credential",
+    );
   });
 });
