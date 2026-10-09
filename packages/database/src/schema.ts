@@ -476,6 +476,32 @@ export const codexTurns = pgTable("codex_turns", {
   errorClassification: text("error_classification"),
 });
 
+// Durable Codex device-login credentials. A free web service replaces its
+// container on every restart, redeploy, and spin-down, so the credential file
+// is only a cache and this table is the source of truth that keeps a connected
+// account connected. Rows are revoked, never reused, on disconnect.
+export const codexCredentials = pgTable(
+  "codex_credentials",
+  {
+    accountKey: text("account_key").notNull(),
+    kind: text("kind").notNull().default("auth"),
+    organizationId: text("organization_id"),
+    userId: text("user_id"),
+    blob: text("blob"),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    blobVersion: integer("blob_version").notNull().default(1),
+    revokedAt: utc("revoked_at"),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountKey, table.kind] }),
+    index("codex_credentials_identity_idx").on(
+      table.organizationId,
+      table.userId,
+    ),
+  ],
+);
+
 export const toolCalls = pgTable("tool_calls", {
   id: text("id").primaryKey(),
   taskId: text("task_id")

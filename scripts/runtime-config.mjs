@@ -32,6 +32,13 @@ export function runtimeConfiguration(environment, root) {
     throw new Error(
       "NIMBUS_EXECUTOR_SECRET must be a random 64-character lowercase hex secret",
     );
+  // The credential home lives on an ephemeral container filesystem, so this key
+  // is what lets saved Codex connections survive a restart. A per-deploy key
+  // would make every stored credential unreadable, which is the bug it prevents.
+  if (!/^[a-f0-9]{64}$/.test(environment.NIMBUS_CREDENTIAL_KEY ?? ""))
+    throw new Error(
+      "NIMBUS_CREDENTIAL_KEY must be a random 64-character lowercase hex secret",
+    );
   const home = environment.NIMBUS_CODEX_HOME;
   if (!home || !isAbsolute(home))
     throw new Error(

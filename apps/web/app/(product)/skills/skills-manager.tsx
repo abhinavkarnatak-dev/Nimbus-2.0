@@ -241,138 +241,143 @@ export function SkillsManager({
           <>
             <div className={styles.modalBackdrop} aria-hidden="true" />
             <div className={styles.modalLayer} ref={modal} role="presentation">
-            {deleteTarget ? (
-            <div
-              className={`card ${styles.deleteModal}`}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="delete-skill-title"
-            >
-              <div className={styles.editorHeading}>
-                <h2 id="delete-skill-title">Delete skill?</h2>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label="Close delete dialog"
-                  onClick={() => setDeleteTarget(null)}
+              {deleteTarget ? (
+                <div
+                  className={`card ${styles.deleteModal}`}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="delete-skill-title"
                 >
-                  <X size={16} />
-                </button>
-              </div>
-              <p>
-                Delete <strong>{deleteTarget.name}</strong>? It will no longer
-                be available for new chats. Existing request snapshots are
-                preserved.
-              </p>
-              <div className={styles.actions}>
-                <button
-                  type="button"
-                  className="button danger"
-                  disabled={busy}
-                  onClick={() => void mutate("DELETE", { id: deleteTarget.id })}
+                  <div className={styles.editorHeading}>
+                    <h2 id="delete-skill-title">Delete skill?</h2>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Close delete dialog"
+                      onClick={() => setDeleteTarget(null)}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <p>
+                    Delete <strong>{deleteTarget.name}</strong>? It will no
+                    longer be available for new chats. Existing request
+                    snapshots are preserved.
+                  </p>
+                  <div className={styles.actions}>
+                    <button
+                      type="button"
+                      className="button danger"
+                      disabled={busy}
+                      onClick={() =>
+                        void mutate("DELETE", { id: deleteTarget.id })
+                      }
+                    >
+                      <Trash2 size={14} /> Delete skill
+                    </button>
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={busy}
+                      onClick={() => setDeleteTarget(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form
+                  className={`card ${styles.editor}`}
+                  onSubmit={save}
+                  aria-label="Skill editor"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="skill-editor-title"
                 >
-                  <Trash2 size={14} /> Delete skill
-                </button>
-                <button
-                  type="button"
-                  className="button secondary"
-                  disabled={busy}
-                  onClick={() => setDeleteTarget(null)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form
-              className={`card ${styles.editor}`}
-              onSubmit={save}
-              aria-label="Skill editor"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="skill-editor-title"
-            >
-              <fieldset disabled={busy}>
-                <div className={styles.editorHeading}>
-                  <h2 id="skill-editor-title">
-                    {editing === "new" ? "Create skill" : "Edit skill"}
-                  </h2>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label="Close skill editor"
-                    onClick={() => setEditing(null)}
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                <label>
-                  Name
-                  <input
-                    aria-label="Name"
-                    value={draft.name}
-                    required
-                    maxLength={100}
-                    onChange={(event) =>
-                      setDraft({ ...draft, name: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Description
-                  <textarea
-                    aria-label="Description"
-                    value={draft.description}
-                    required
-                    maxLength={500}
-                    rows={2}
-                    onChange={(event) =>
-                      setDraft({ ...draft, description: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Summary
-                  <textarea
-                    aria-label="Summary"
-                    value={draft.summary}
-                    required
-                    maxLength={20000}
-                    rows={8}
-                    placeholder="The instructions Nimbus should follow when this skill is selected."
-                    onChange={(event) =>
-                      setDraft({ ...draft, summary: event.target.value })
-                    }
-                  />
-                </label>
-                <div className={styles.actions}>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => fileInput.current?.click()}
-                  >
-                    <Upload size={14} />
-                    Add file
-                  </button>
-                  <span className="muted">
-                    MD or TXT replaces the summary. Up to 20,000 characters.
-                  </span>
-                </div>
-                <div className={styles.actions}>
-                  <button className="button" type="submit">
-                    {busy ? "Saving..." : "Save skill"}
-                  </button>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    onClick={() => setEditing(null)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </fieldset>
-            </form>
-            )}
+                  <fieldset disabled={busy}>
+                    <div className={styles.editorHeading}>
+                      <h2 id="skill-editor-title">
+                        {editing === "new" ? "Create skill" : "Edit skill"}
+                      </h2>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="Close skill editor"
+                        onClick={() => setEditing(null)}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <label>
+                      Name
+                      <input
+                        aria-label="Name"
+                        value={draft.name}
+                        required
+                        maxLength={100}
+                        onChange={(event) =>
+                          setDraft({ ...draft, name: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Description
+                      <textarea
+                        aria-label="Description"
+                        value={draft.description}
+                        required
+                        maxLength={500}
+                        rows={2}
+                        onChange={(event) =>
+                          setDraft({
+                            ...draft,
+                            description: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Summary
+                      <textarea
+                        aria-label="Summary"
+                        value={draft.summary}
+                        required
+                        maxLength={20000}
+                        rows={8}
+                        placeholder="The instructions Nimbus should follow when this skill is selected."
+                        onChange={(event) =>
+                          setDraft({ ...draft, summary: event.target.value })
+                        }
+                      />
+                    </label>
+                    <div className={styles.actions}>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => fileInput.current?.click()}
+                      >
+                        <Upload size={14} />
+                        Add file
+                      </button>
+                      <span className="muted">
+                        MD or TXT replaces the summary. Up to 20,000 characters.
+                      </span>
+                    </div>
+                    <div className={styles.actions}>
+                      <button className="button" type="submit">
+                        {busy ? "Saving..." : "Save skill"}
+                      </button>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => setEditing(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </fieldset>
+                </form>
+              )}
             </div>
           </>,
           document.body,

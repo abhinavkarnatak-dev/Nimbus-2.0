@@ -13,7 +13,7 @@ download-only; no document iframe is embedded.
 ## Deployment
 
 1. Run `pnpm db:migrate` against your deployment database **before deploying this
-   version**. Migration 0014 adds message attachment metadata and the per-message
+   version**. Migration 0015 adds message attachment metadata and the per-message
    six-file database constraint. Existing messages default to no attachments.
 2. Set these server-only variables locally in `apps/web/.env.local` and on Render:
    `R2_ENDPOINT`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
